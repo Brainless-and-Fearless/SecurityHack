@@ -1,0 +1,131 @@
+/* Объявление цветовой палитры и переменных */
+:root {
+    --bg-color: #0F172A;
+    --primary-color: #4F46E5;
+    --success-color: #10B981;
+    --danger-color: #E11D48;
+    --text-color: #F8FAFC;
+    
+    --level1-color: #FBBF24;
+    --level2-color: #F97316;
+    --level3-color: #EF4444;
+    
+    --rank-kiddie: #94A3B8;
+    --rank-elite: #818CF8;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Inter', sans-serif;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+.font-code {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Glassmorphism */
+.glass-panel {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Формы лобби */
+#lobby-screen {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 350px;
+    text-align: center;
+    z-index: 100;
+}
+
+input {
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-color);
+    font-family: 'Inter', sans-serif;
+    outline: none;
+}
+
+input:focus {
+    border-color: var(--primary-color);
+}
+
+button {
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    color: white;
+}
+
+.btn-primary { background-color: var(--primary-color); }
+.btn-primary:hover { filter: brightness(1.2); }
+
+.btn-success { background-color: var(--success-color); }
+.btn-danger { background-color: var(--danger-color); }
+
+/* Игровое пространство */
+#game-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.dashboard {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    z-index: 10;
+}
+
+.rank-elite {
+    color: var(--rank-elite);
+    text-shadow: 0 0 8px var(--rank-elite);
+    font-weight: bold;
+}
+
+#game-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Модальное окно задачи */
+#task-modal {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 300px;
+}

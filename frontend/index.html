@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Война серверов: Битва за узлы</title>
+    <!-- Подключение шрифтов Inter и JetBrains Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 1. Лобби с системой комнат -->
+    <div id="lobby-screen" class="glass-panel">
+        <h1>Система входа</h1>
+        <input type="text" id="nickname-input" placeholder="Введите Никнейм">
+        <input type="text" id="room-input" placeholder="Код комнаты">
+        <button id="join-btn" class="btn-primary">Подключиться</button>
+    </div>
+
+    <!-- 2. Игровой экран (скрыт по умолчанию) -->
+    <div id="game-screen" class="hidden">
+        
+        <!-- UI Dashboard для очков -->
+        <header class="dashboard glass-panel">
+            <div class="player-info">
+                <span id="player-name">Игрок</span>
+                <span id="player-score" class="rank-elite">Очки: 0</span>
+            </div>
+        </header>
+        
+        <!-- Холст для графа -->
+        <canvas id="game-canvas"></canvas>
+
+        <!-- 3. Окно задачи для взлома (пул задач) -->
+        <div id="task-modal" class="glass-panel hidden">
+            <h2 id="task-title" class="font-code">Взлом узла...</h2>
+            <p id="task-desc">Описание задачи появится здесь</p>
+            <input type="text" id="task-answer" placeholder="Ключ дешифровки">
+            <button id="submit-task-btn" class="btn-success">Взломать</button>
+            <button id="cancel-task-btn" class="btn-danger">Прервать</button>
+        </div>
+    </div>
+
+    <!-- Подключение главного скрипта -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
