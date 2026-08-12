@@ -1,6 +1,9 @@
 name: Deploy SecurityHack
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -30,19 +33,19 @@ jobs:
           test -w /var/www/html
           command -v rsync >/dev/null
 
-          rsync -a \
+          rsync -a --delete \
             --exclude=".git/" \
             --exclude=".github/" \
             --exclude=".env" \
             --exclude="backend/.env" \
             --exclude="backend/venv/" \
-            --exclude="backend/keyhack.db" \
+            --exclude="backend/*.db" \
             --exclude="uploads/" \
             --exclude="media/" \
             --exclude="data/" \
             ./ /var/www/html/
 
-      - name: Create virtual environment and install dependencies
+      - name: Install Python dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -53,7 +56,6 @@ jobs:
             python3 -m venv backend/venv
           fi
 
-          backend/venv/bin/python -m pip install --upgrade pip
           backend/venv/bin/pip install -r backend/requirements.txt
 
       - name: Restart FastAPI
@@ -61,5 +63,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          sudo systemctl restart fastapi.service
-          sudo systemctl is-active --quiet fastapi.service
+          sudo /usr/bin/systemctl restart fastapi.service
+          /usr/bin/systemctl is-active --quiet fastapi.service
+
+      - name: Check API health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:8000/health; then
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "FastAPI health check failed"
+          exit 1
