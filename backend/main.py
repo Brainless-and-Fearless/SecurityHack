@@ -77,5 +77,4 @@ async def websocket_endpoint(websocket: WebSocket):
         try:
             await websocket.close(code=1011)
         except Exception:
-            pass:
             pass
