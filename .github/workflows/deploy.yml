@@ -1,0 +1,67 @@
+name: Deploy SecurityHack
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: securityhack-production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: [self-hosted, linux, x64, production-securityhack]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Sync application files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo install -d -o keyhack -g keyhack /var/www/html
+
+          rsync -a --delete \
+            --exclude=".git/" \
+            --exclude=".github/" \
+            --exclude=".env" \
+            --exclude="backend/.env" \
+            --exclude="backend/venv/" \
+            --exclude="uploads/" \
+            --exclude="media/" \
+            --exclude="data/" \
+            ./ /var/www/html/
+
+          sudo chown -R keyhack:keyhack /var/www/html
+
+      - name: Create virtual environment and install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd /var/www/html
+
+          if [ ! -x backend/venv/bin/python ]; then
+            python3 -m venv backend/venv
+          fi
+
+          backend/venv/bin/python -m pip install --upgrade pip
+          backend/venv/bin/pip install -r backend/requirements.txt
+
+      - name: Restart FastAPI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo systemctl restart fastapi.service
+          sudo systemctl is-active --quiet fastapi.service
