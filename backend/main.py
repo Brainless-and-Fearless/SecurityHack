@@ -14,9 +14,9 @@ logger = logging.getLogger("securityhack")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("FastAPI server started")
+    logger.info("SecurityHack API started")
     yield
-    logger.info("FastAPI server stopped")
+    logger.info("SecurityHack API stopped")
 
 
 app = FastAPI(
@@ -50,7 +50,11 @@ async def health():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    client = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
+
+    client = "unknown"
+    if websocket.client:
+        client = f"{websocket.client.host}:{websocket.client.port}"
+
     logger.info("WebSocket connected: %s", client)
 
     try:
@@ -68,9 +72,10 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("WebSocket disconnected: %s", client)
 
     except Exception:
-        logger.exception("WebSocket error for client: %s", client)
+        logger.exception("WebSocket error: %s", client)
 
         try:
             await websocket.close(code=1011)
         except Exception:
+            pass:
             pass
