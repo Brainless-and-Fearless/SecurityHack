@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Optional
-
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +12,12 @@ class DefenceLevel(str, Enum):
 
 class GameStatus(str, Enum):
     WAITING = "waiting"
+    RUNNING = "running"
+    FINISHED = "finished"
+
+
+class RoomStatus(str, Enum):
+    LOBBY = "lobby"
     RUNNING = "running"
     FINISHED = "finished"
 
@@ -29,6 +35,28 @@ class Player(BaseModel):
     )
 
     owned_node_ids: list[str] = Field(default_factory=list)
+
+
+class Room(BaseModel):
+    id: str
+
+    host_id: str
+
+    status: RoomStatus = RoomStatus.LOBBY
+
+    player_ids: list[str] = Field(default_factory=list)
+
+    max_players: int = Field(
+        default=8,
+        ge=2,
+        le=8,
+    )
+
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+    )
+
+    game_id: Optional[str] = None
 
 
 class Node(BaseModel):

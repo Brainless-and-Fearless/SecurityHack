@@ -1,0 +1,12 @@
+# Python virtual environment
+backend/.venv/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+
+# Pytest cache
+.pytest_cache/
+**/.pytest_cache/
+
+t_result.txt

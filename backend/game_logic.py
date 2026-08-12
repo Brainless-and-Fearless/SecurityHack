@@ -16,7 +16,7 @@ from models import (
 
 MATCH_DURATION_SECONDS = 15 * 60
 
-STARTING_RESOURCES = 5.0
+STARTING_RESOURCES = 20.0
 MAX_RESOURCES = 200.0
 
 RESOURCE_INCOME_PER_NODE = 0.5
@@ -184,7 +184,7 @@ def can_attack(
     if node.owner_id == player_id:
         return False, "OWN_NODE"
 
-    if player_id not in _owned_neighbors(game, player_id, node_id):
+    if not _owned_neighbors(game, player_id, node_id):
         return False, "NODE_NOT_NEIGHBOR"
 
     if node.active_attack_player_id is not None:
