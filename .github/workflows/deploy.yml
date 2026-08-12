@@ -30,12 +30,13 @@ jobs:
           test -w /var/www/html
           command -v rsync >/dev/null
 
-          rsync -a --delete \
+          rsync -a \
             --exclude=".git/" \
             --exclude=".github/" \
             --exclude=".env" \
             --exclude="backend/.env" \
             --exclude="backend/venv/" \
+            --exclude="backend/keyhack.db" \
             --exclude="uploads/" \
             --exclude="media/" \
             --exclude="data/" \
@@ -58,10 +59,6 @@ jobs:
       - name: Restart FastAPI
         shell: bash
         run: |
-          set -euo pipefail
-
-          sudo systemctl restart fastapi.service
-          sudo systemctl is-active --quiet fastapi.service
           set -euo pipefail
 
           sudo systemctl restart fastapi.service
