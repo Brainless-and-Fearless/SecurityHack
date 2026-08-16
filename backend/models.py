@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
@@ -53,7 +53,7 @@ class Room(BaseModel):
     )
 
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
     )
 
     game_id: Optional[str] = None
