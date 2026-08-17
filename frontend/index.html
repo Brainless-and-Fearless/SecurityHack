@@ -5,33 +5,92 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Война серверов: Битва за узлы</title>
     <!-- Подключение шрифтов Inter и JetBrains Mono -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <!-- 1. Лобби с системой комнат -->
-    <div id="lobby-screen" class="glass-panel">
-        <h1>Система входа</h1>
-        <input type="text" id="nickname-input" placeholder="Введите Никнейм">
-        <input type="text" id="room-input" placeholder="Код комнаты">
-        <button id="join-btn" class="btn-primary">Подключиться</button>
+
+    <!-- Фон: голографический граф поля, растёт по мере подключения игроков в лобби -->
+    <canvas id="bg-graph"></canvas>
+
+    <!-- ================= ЭКРАН 1: ВХОД (CREATE_ROOM / JOIN_ROOM) ================= -->
+    <div id="screen-entry" class="glass-panel">
+        <div class="brand">
+            <span class="brand-mark">// SERVER_WAR.EXE</span>
+            <h1>Война серверов</h1>
+            <p>Битва за узлы — зайдите под своим ником</p>
+        </div>
+
+        <div class="field">
+            <label for="nickname-input">Никнейм</label>
+            <input type="text" id="nickname-input" placeholder="Введите никнейм" maxlength="16">
+            <div class="field-error" id="nickname-error"></div>
+        </div>
+
+        <div class="mode-switch" role="tablist">
+            <button type="button" id="mode-create" class="active" role="tab" aria-selected="true">Создать комнату</button>
+            <button type="button" id="mode-join" role="tab" aria-selected="false">Войти по коду</button>
+        </div>
+
+        <div id="entry-code-field" class="field">
+            <label for="room-code-input">Код комнаты</label>
+            <input type="text" id="room-code-input" class="font-code" placeholder="НАПРИМЕР A7F2Q3" maxlength="6">
+            <div class="field-error" id="room-code-error"></div>
+        </div>
+
+        <button type="button" id="entry-submit" class="btn-primary">Создать комнату</button>
+        <div class="field-error" id="entry-network-error"></div>
     </div>
 
-    <!-- 2. Игровой экран (скрыт по умолчанию) -->
+    <!-- ================= ЭКРАН 2: ЛОББИ (ROOM_STATE) ================= -->
+    <div id="screen-lobby" class="glass-panel hidden">
+        <div class="lobby-topbar">
+            <div class="room-code-chip">
+                <div>
+                    <span class="label">Код комнаты</span>
+                    <span class="code font-code" id="lobby-room-code">—</span>
+                </div>
+                <button type="button" class="copy-btn" id="copy-code-btn" title="Скопировать код" aria-label="Скопировать код комнаты">⧉</button>
+            </div>
+            <button type="button" class="btn-danger-ghost" id="leave-room-btn">Покинуть</button>
+        </div>
+
+        <div class="lobby-body">
+            <div class="section-heading">
+                <span>Игроки</span>
+                <span class="count" id="player-count">1/8</span>
+            </div>
+            <div class="player-list" id="player-list"></div>
+        </div>
+
+        <div class="lobby-footer">
+            <button type="button" class="btn-success hidden" id="start-game-btn">Начать игру</button>
+            <div class="start-hint hidden" id="start-hint"></div>
+            <div class="waiting-host hidden" id="waiting-host">
+                <span class="spinner"></span>
+                <span>Ждём, когда хост начнёт игру</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-stack"></div>
+
+    <div id="start-overlay" class="hidden">
+        <div id="start-count">3</div>
+        <p>Синхронный старт для всех игроков…</p>
+    </div>
+
+    <!-- ================= ЭКРАН 3: ИГРА (GAME_STARTED) — без изменений ================= -->
     <div id="game-screen" class="hidden">
-        
-        <!-- UI Dashboard для очков -->
         <header class="dashboard glass-panel">
             <div class="player-info">
                 <span id="player-name">Игрок</span>
                 <span id="player-score" class="rank-elite">Очки: 0</span>
             </div>
         </header>
-        
-        <!-- Холст для графа -->
+
         <canvas id="game-canvas"></canvas>
 
-        <!-- 3. Окно задачи для взлома (пул задач) -->
         <div id="task-modal" class="glass-panel hidden">
             <h2 id="task-title" class="font-code">Взлом узла...</h2>
             <p id="task-desc">Описание задачи появится здесь</p>
