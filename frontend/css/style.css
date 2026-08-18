@@ -5,13 +5,22 @@
     --success-color: #10B981;
     --danger-color: #E11D48;
     --text-color: #F8FAFC;
-    
+
     --level1-color: #FBBF24;
     --level2-color: #F97316;
     --level3-color: #EF4444;
-    
+
     --rank-kiddie: #94A3B8;
     --rank-elite: #818CF8;
+
+    /* Новое: производные поверхности для лобби — не новые цвета, а прозрачности базовых токенов */
+    --surface-1: rgba(255,255,255,0.05);
+    --surface-2: rgba(255,255,255,0.08);
+    --surface-line: rgba(255,255,255,0.10);
+    --surface-muted: rgba(248,250,252,0.45);
+    --radius-lg: 16px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
 }
 
 * {
@@ -29,16 +38,28 @@ body {
     justify-content: center;
     align-items: center;
     overflow: hidden;
+    position: relative;
 }
 
 .font-code {
     font-family: 'JetBrains Mono', monospace;
 }
 
+*:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+
 /* Glassmorphism */
 .glass-panel {
     background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
     padding: 24px;
@@ -49,29 +70,21 @@ body {
     display: none !important;
 }
 
-/* Формы лобби */
-#lobby-screen {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    width: 350px;
-    text-align: center;
-    z-index: 100;
-}
-
 input {
-    padding: 12px;
+    padding: 12px 14px;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     background: rgba(0, 0, 0, 0.2);
     color: var(--text-color);
     font-family: 'Inter', sans-serif;
+    font-size: 14px;
     outline: none;
+    width: 100%;
+    transition: border-color .2s ease;
 }
-
-input:focus {
-    border-color: var(--primary-color);
-}
+input::placeholder { color: var(--surface-muted); }
+input:focus { border-color: var(--primary-color); }
+input.input-error { border-color: var(--danger-color); }
 
 button {
     padding: 12px;
@@ -79,17 +92,303 @@ button {
     border-radius: 8px;
     cursor: pointer;
     font-weight: 600;
-    transition: all 0.3s ease;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    transition: all 0.2s ease;
     color: white;
 }
+button:active { transform: scale(0.98); }
+button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: none; }
 
 .btn-primary { background-color: var(--primary-color); }
-.btn-primary:hover { filter: brightness(1.2); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.2); }
 
 .btn-success { background-color: var(--success-color); }
+.btn-success:hover:not(:disabled) { filter: brightness(1.1); }
+
 .btn-danger { background-color: var(--danger-color); }
 
-/* Игровое пространство */
+.rank-elite {
+    color: var(--rank-elite);
+    text-shadow: 0 0 8px var(--rank-elite);
+    font-weight: bold;
+}
+
+/* =========================================================
+   ФОН — голографический граф лобби (canvas на весь экран)
+   ========================================================= */
+#bg-graph {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+}
+
+/* =========================================================
+   ЭКРАН 1 — ВХОД
+   ========================================================= */
+#screen-entry {
+    position: relative;
+    z-index: 1;
+    width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.brand { text-align: center; display: flex; flex-direction: column; gap: 4px; }
+.brand-mark {
+    font-size: 13px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--rank-elite);
+    font-family: 'JetBrains Mono', monospace;
+}
+.brand h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.brand p { font-size: 13px; color: var(--surface-muted); }
+
+.field label {
+    display: block;
+    font-size: 12px;
+    color: var(--surface-muted);
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+.field-error {
+    font-size: 12px;
+    color: var(--danger-color);
+    margin-top: 6px;
+    min-height: 14px;
+}
+
+.mode-switch {
+    display: flex;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--surface-line);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 3px;
+}
+.mode-switch button {
+    flex: 1;
+    background: transparent;
+    color: var(--surface-muted);
+    padding: 9px 10px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+.mode-switch button.active { background: var(--primary-color); color: #fff; }
+
+#entry-code-field {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height .25s ease, opacity .2s ease;
+}
+#entry-code-field.open { max-height: 100px; opacity: 1; }
+#room-code-input { text-transform: uppercase; letter-spacing: .12em; font-family: 'JetBrains Mono', monospace; }
+
+/* =========================================================
+   ЭКРАН 2 — ЛОББИ
+   ========================================================= */
+#screen-lobby {
+    position: relative;
+    z-index: 1;
+    width: 460px;
+    max-width: 92vw;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+}
+
+.lobby-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--surface-line);
+    gap: 12px;
+}
+.room-code-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--surface-line);
+    border-radius: 8px;
+    padding: 8px 8px 8px 14px;
+}
+.room-code-chip .label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--surface-muted); display: block; }
+.room-code-chip .code { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: .1em; color: var(--text-color); }
+
+.copy-btn {
+    background: var(--surface-2);
+    color: var(--text-color);
+    width: 34px; height: 34px;
+    padding: 0;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.copy-btn.copied { background: var(--success-color); }
+
+.btn-danger-ghost {
+    background: transparent;
+    border: 1px solid rgba(225,29,72,0.4);
+    color: var(--danger-color);
+    padding: 10px 14px;
+}
+.btn-danger-ghost:hover { background: rgba(225,29,72,0.1); }
+
+.lobby-body {
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--surface-muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-weight: 600;
+}
+.section-heading .count { font-family: 'JetBrains Mono', monospace; color: var(--text-color); letter-spacing: 0; }
+.section-heading .count.full { color: var(--danger-color); }
+
+.player-list { display: flex; flex-direction: column; gap: 8px; }
+.player-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    animation: rowIn .25s ease both;
+}
+.player-row.is-you { border-color: rgba(79,70,229,0.5); }
+@keyframes rowIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+.avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px;
+    color: #0F172A;
+    flex-shrink: 0;
+}
+
+.player-meta { flex: 1; min-width: 0; }
+.player-name-row { display: flex; align-items: center; gap: 6px; }
+.player-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.you-tag { font-size: 10px; color: var(--surface-muted); font-weight: 500; }
+.host-crown { color: var(--rank-elite); text-shadow: 0 0 8px var(--rank-elite); font-size: 13px; flex-shrink: 0; }
+
+.status-line { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--surface-muted); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success-color); box-shadow: 0 0 6px var(--success-color); flex-shrink: 0; }
+.status-dot.reconnecting { background: var(--level2-color); box-shadow: 0 0 6px var(--level2-color); animation: pulseDot 1s infinite; }
+@keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+.player-slot-empty {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px dashed var(--surface-line);
+    color: var(--surface-muted);
+    font-size: 13px;
+}
+.player-slot-empty .avatar-ghost { width: 34px; height: 34px; border-radius: 50%; border: 1px dashed var(--surface-line); flex-shrink: 0; }
+
+.lobby-footer {
+    padding: 18px 20px;
+    border-top: 1px solid var(--surface-line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.start-hint { font-size: 12px; text-align: center; color: var(--surface-muted); }
+.start-hint.warn { color: var(--level1-color); }
+
+.waiting-host {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 13px;
+    border-radius: 8px;
+    background: rgba(79,70,229,0.12);
+    border: 1px solid rgba(79,70,229,0.3);
+    font-size: 13px;
+    color: var(--text-color);
+}
+.spinner {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(248,250,252,0.25);
+    border-top-color: var(--rank-elite);
+    animation: spin .8s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* =========================================================
+   ТОСТЫ — ROOM_STATE / ERROR события
+   ========================================================= */
+#toast-stack {
+    position: fixed; top: 20px; right: 20px; z-index: 100;
+    display: flex; flex-direction: column; gap: 10px;
+    width: 300px; max-width: 88vw;
+}
+.toast {
+    padding: 13px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    display: flex; align-items: flex-start; gap: 10px;
+    animation: toastIn .25s ease both;
+    border: 1px solid var(--surface-line);
+}
+@keyframes toastIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+.toast.error { background: rgba(225,29,72,0.15); border-color: rgba(225,29,72,0.4); }
+.toast.info { background: rgba(79,70,229,0.15); border-color: rgba(79,70,229,0.4); }
+.toast.success { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.4); }
+.toast .icon { font-size: 15px; flex-shrink: 0; }
+
+/* =========================================================
+   Синхронный старт (GAME_STARTED)
+   ========================================================= */
+#start-overlay {
+    position: fixed; inset: 0;
+    background: rgba(15,23,42,0.85);
+    backdrop-filter: blur(6px);
+    z-index: 200;
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+}
+#start-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 64px; font-weight: 700;
+    color: var(--rank-elite);
+    text-shadow: 0 0 24px var(--rank-elite);
+}
+#start-overlay p { color: var(--surface-muted); font-size: 14px; }
+
+@media (max-width: 480px) {
+    #screen-entry { width: 92vw; padding: 24px; }
+    #screen-lobby { width: 96vw; }
+    .lobby-topbar { flex-wrap: wrap; }
+}
+
+/* =========================================================
+   Игровое пространство — без изменений
+   ========================================================= */
 #game-screen {
     position: absolute;
     top: 0;
@@ -103,12 +402,6 @@ button {
     top: 24px;
     left: 24px;
     z-index: 10;
-}
-
-.rank-elite {
-    color: var(--rank-elite);
-    text-shadow: 0 0 8px var(--rank-elite);
-    font-weight: bold;
 }
 
 #game-canvas {

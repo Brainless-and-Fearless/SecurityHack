@@ -29,7 +29,7 @@ export class MockClient {
                 // Расчет очков: K*5 за успех, штраф K*3 за провал[cite: 1]
                 const points = isSuccess ? kLevel * 5 : -(kLevel * 3); 
                 resolve({ success: isSuccess, pointsDelta: points });
-            }, 100); 
+            }, 500); 
         });
     }
 }
