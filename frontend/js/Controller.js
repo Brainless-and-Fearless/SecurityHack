@@ -42,22 +42,18 @@ export class Controller {
                 lv.showEntryFieldError('roomCode', 'Введите код комнаты');
                 return;
             }
-            // CLIENT -> SERVER: JOIN_ROOM
             this.lobbyTransport.joinRoom(nickname, code);
         } else {
-            // CLIENT -> SERVER: CREATE_ROOM
             this.lobbyTransport.createRoom(nickname);
         }
     }
 
-    // Вызывается транспортом (моком или реальным Network.js) при ROOM_CREATED/ROOM_JOINED/ROOM_STATE
     onRoomState(room) {
         this.room = room;
         this.lobbyView.showLobbyScreen();
         this.lobbyView.renderRoom(room);
     }
 
-    // Вызывается транспортом при ERROR
     onNetworkError(message) {
         this.lobbyView.showToast('error', message);
     }
@@ -72,16 +68,15 @@ export class Controller {
     handleLeaveRoom() {
         this.lobbyTransport.leaveRoom();
         this.room = null;
+        this.view.stopAnimation();
         this.lobbyView.showEntryScreen();
         this.lobbyView.resetEntryForm();
     }
 
     handleStartGame() {
-        // CLIENT -> SERVER: START_GAME (только у хоста кнопка видна)
         this.lobbyTransport.startGame();
     }
 
-    // Вызывается транспортом при GAME_STARTED — синхронный старт для всех игроков
     onGameStarted() {
         this.lobbyView.runStartCountdown(() => this.startGame());
     }
@@ -95,13 +90,12 @@ export class Controller {
 
         console.log(`Агент ${nickname} успешно подключен к системе.`);
 
-        // 1. Просим Мозг сгенерировать Ядро (Core Server)
+        // Пока backend GAME_STATE не подключён, используем mock-карту.
         this.model.generateNodes();
 
-        // 2. Просим Вид отрисовать узлы на холсте
-        this.view.render(this.model.state.nodes);
+        // Постоянный render нужен для пульсации атакуемого узла.
+        this.view.startAnimation(() => this.model.state.nodes);
 
-        // 3. Запускаем игровую экономику (MockClient)
         if (this.network) {
             this.network.startSimulation();
         }
