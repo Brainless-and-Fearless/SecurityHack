@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from models import GameState, Room, Task
 
@@ -11,10 +11,44 @@ class CreateRoomMessage(BaseModel):
     nickname: str
 
 
+class RoomPlayerState(BaseModel):
+    id: str
+    name: str
+    is_host: bool = Field(alias="isHost")
+    status: str
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+
+
 class RoomStateMessage(BaseModel):
     type: Literal["ROOM_STATE"]
-    room: Room
+    you: RoomPlayerState
+    room_code: str = Field(alias="roomCode")
+    players: list[RoomPlayerState]
 
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+
+    @field_validator("room_code")
+    @classmethod
+    def validate_room_code(cls, value: str) -> str:
+        if len(value) != 6:
+            raise ValueError("ROOM_CODE_MUST_BE_6_CHARACTERS")
+
+        allowed_characters = set(
+            "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        )
+
+        if any(
+            character not in allowed_characters
+            for character in value
+        ):
+            raise ValueError("INVALID_ROOM_CODE")
+
+        return value
 
 class RoomCreatedMessage(BaseModel):
     type: Literal["ROOM_CREATED"]

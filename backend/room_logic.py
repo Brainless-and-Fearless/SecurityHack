@@ -8,19 +8,25 @@ MAX_PLAYERS = 8
 def create_room(
     room_id: str,
     host_id: str,
+    nickname: str,
 ) -> Room:
-    return Room(
+    room = Room(
         id=room_id,
         host_id=host_id,
         status=RoomStatus.LOBBY,
         player_ids=[host_id],
-        max_players=MAX_PLAYERS,
+        player_nicknames={
+            host_id: nickname,
+        },
     )
+
+    return room
 
 
 def join_room(
     room: Room,
     player_id: str,
+    nickname: str,
 ) -> None:
     if room.status != RoomStatus.LOBBY:
         raise ValueError("ROOM_NOT_JOINABLE")
@@ -32,6 +38,7 @@ def join_room(
         raise ValueError("ROOM_FULL")
 
     room.player_ids.append(player_id)
+    room.player_nicknames[player_id] = nickname    
 
 
 def leave_room(

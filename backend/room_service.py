@@ -1,9 +1,8 @@
 from models import Room
 from redis_repository import RoomRepository
 from room_logic import create_room
-
-
-from models import Room
+from game_service import GameService
+from models import Room, RoomStatus
 from redis_repository import RoomRepository
 from room_logic import create_room
 
@@ -12,17 +11,22 @@ class RoomService:
     def __init__(
         self,
         room_repository: RoomRepository,
+        game_service: GameService,
     ):
         self.room_repository = room_repository
+        self.game_service = game_service
+
 
     async def create_room(
         self,
         room_id: str,
         host_id: str,
+        nickname: str,
     ) -> Room:
         room = create_room(
             room_id,
             host_id,
+            nickname,
         )
 
         await self.room_repository.save_room(room)
@@ -33,10 +37,12 @@ class RoomService:
 
         return room
 
+
     async def join_room(
         self,
         room_id: str,
         player_id: str,
+        nickname: str,
     ) -> Room:
         room = await self.room_repository.get_room(room_id)
 
@@ -45,11 +51,12 @@ class RoomService:
 
         from room_logic import join_room
 
-        join_room(room, player_id)
+        join_room(room, player_id, nickname)
 
         await self.room_repository.save_room(room)
 
         return room
+
 
     async def start_room(
         self,
@@ -68,3 +75,38 @@ class RoomService:
         await self.room_repository.save_room(room)
 
         return room
+
+
+    async def start_game(
+        self,
+        room_id: str,
+        player_id: str,
+    ) -> Room:
+        room = await self.room_repository.get_room(
+            room_id,
+        )
+
+        if room is None:
+            raise ValueError("ROOM_NOT_FOUND")
+
+        if room.host_id != player_id:
+            raise ValueError("ONLY_HOST_CAN_START")
+
+        if room.status != RoomStatus.LOBBY:
+            raise ValueError("ROOM_NOT_IN_LOBBY")
+
+        if len(room.player_ids) < 2:
+            raise ValueError("NOT_ENOUGH_PLAYERS")
+
+        game_id, game = await self.game_service.start_game(
+            room,
+        )
+
+        room.game_id = game_id
+        room.status = RoomStatus.RUNNING
+
+        await self.room_repository.save_room(
+            room,
+        )
+
+        return room    

@@ -3,19 +3,26 @@ import secrets
 import logging
 import redis.asyncio as redis
 
+from game_service import GameService
+from room_state import build_room_state
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from connection_manager import ConnectionManager
 from network_models import CreateRoomMessage, RoomCreatedMessage
-from redis_repository import RoomRepository
+from redis_repository import (
+    GameStateRepository,
+    RoomRepository,
+)
 from room_id import generate_unique_room_id
 from room_service import RoomService
 from network_models import (
     CreateRoomMessage,
     JoinRoomMessage,
+    StartGameMessage,
     RoomCreatedMessage,
     RoomJoinedMessage,
+    ErrorMessage,
 )
 
 def generate_player_id() -> str:
@@ -39,18 +46,31 @@ async def lifespan(app: FastAPI):
         decode_responses=True,
     )
 
-    room_repository = RoomRepository(redis_client)
+    room_repository = RoomRepository(
+        redis_client
+    )
 
-    connection_manager = ConnectionManager()
+    game_repository = GameStateRepository(
+        redis_client
+    )
+
+    game_service = GameService(
+        game_repository
+    )
 
     room_service = RoomService(
         room_repository,
+        game_service
     )
+
+    connection_manager = ConnectionManager()
 
     app.state.redis = redis_client
     app.state.room_repository = room_repository
-    app.state.connection_manager = connection_manager
+    app.state.game_repository = game_repository
+    app.state.game_service = game_service
     app.state.room_service = room_service
+    app.state.connection_manager = connection_manager
 
     logger.info("SecurityHack API started")
 
@@ -94,10 +114,15 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
 
     client = "unknown"
+
     if websocket.client:
-        client = f"{websocket.client.host}:{websocket.client.port}"
+        client = (
+            f"{websocket.client.host}:"
+            f"{websocket.client.port}"
+        )
 
     player_id = generate_player_id()
+    current_room_id: str | None = None
 
     logger.info(
         "WebSocket connected: %s | player=%s",
@@ -106,37 +131,76 @@ async def websocket_endpoint(websocket: WebSocket):
     )
 
     room_service = websocket.app.state.room_service
+    connection_manager = (
+        websocket.app.state.connection_manager
+    )
+    game_repository = (
+        websocket.app.state.game_repository
+    )
+
+    async def send_error(
+        code: str,
+        message: str,
+        request_id: str | None = None,
+    ) -> None:
+        response = ErrorMessage(
+            type="ERROR",
+            request_id=request_id,
+            code=code,
+            message=message,
+        )
+
+        await websocket.send_json(
+            response.model_dump(mode="json")
+        )
 
     try:
         while True:
             message = await websocket.receive_json()
 
-            if message.get("type") == "CREATE_ROOM":
-                create_message = CreateRoomMessage.model_validate(
-                    message
+            message_type = message.get("type")
+
+            # ---------------------------------------------------------
+            # CREATE_ROOM
+            # ---------------------------------------------------------
+            if message_type == "CREATE_ROOM":
+                create_message = (
+                    CreateRoomMessage.model_validate(
+                        message
+                    )
                 )
 
-                room_id = await generate_unique_room_id(
-                    websocket.app.state.redis
+                room_id = (
+                    await generate_unique_room_id(
+                        websocket.app.state.redis
+                    )
                 )
 
                 room = await room_service.create_room(
                     room_id=room_id,
                     host_id=player_id,
+                    nickname=create_message.nickname,
                 )
 
-                await websocket.app.state.connection_manager.connect(
+                await connection_manager.connect(
                     player_id,
                     room.id,
                     websocket,
                 )
 
-                await websocket.app.state.connection_manager.broadcast_to_room(
+                current_room_id = room.id
+
+                room_state = build_room_state(
+                    room=room,
+                    current_player_id=player_id,
+                )
+
+                await connection_manager.broadcast_to_room(
                     room.id,
-                    {
-                        "type": "ROOM_STATE",
-                        "room": room.model_dump(mode="json"),
-                    },
+                    room_state.model_dump(
+                        mode="json",
+                        by_alias=True,
+                    ),
                 )
 
                 response = RoomCreatedMessage(
@@ -149,32 +213,45 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 await websocket.send_json(
                     response.model_dump(mode="json")
-)
+                )
 
                 continue
 
-            if message.get("type") == "JOIN_ROOM":
-                join_message = JoinRoomMessage.model_validate(
-                    message
+            # ---------------------------------------------------------
+            # JOIN_ROOM
+            # ---------------------------------------------------------
+            if message_type == "JOIN_ROOM":
+                join_message = (
+                    JoinRoomMessage.model_validate(
+                        message
+                    )
                 )
 
                 room = await room_service.join_room(
                     room_id=join_message.room_id,
                     player_id=player_id,
+                    nickname=join_message.nickname,
                 )
 
-                await websocket.app.state.connection_manager.connect(
+                await connection_manager.connect(
                     player_id,
                     room.id,
                     websocket,
                 )
 
-                await websocket.app.state.connection_manager.broadcast_to_room(
+                current_room_id = room.id
+
+                room_state = build_room_state(
+                    room=room,
+                    current_player_id=player_id,
+                )
+
+                await connection_manager.broadcast_to_room(
                     room.id,
-                    {
-                        "type": "ROOM_STATE",
-                        "room": room.model_dump(mode="json"),
-                    },
+                    room_state.model_dump(
+                        mode="json",
+                        by_alias=True,
+                    ),
                 )
 
                 response = RoomJoinedMessage(
@@ -191,13 +268,66 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 continue
 
+            # ---------------------------------------------------------
+            # START_GAME
+            # ---------------------------------------------------------
+            if message_type == "START_GAME":
+                start_message = (
+                    StartGameMessage.model_validate(
+                        message
+                    )
+                )
 
-            await websocket.send_json(
-                {
-                    "type": "ERROR",
-                    "code": "UNKNOWN_MESSAGE",
-                    "message": "Unsupported message type.",
-                }
+                if current_room_id is None:
+                    await send_error(
+                        code="NOT_IN_ROOM",
+                        message="Player is not in a room.",
+                        request_id=start_message.request_id,
+                    )
+                    continue
+
+                room = await room_service.start_game(
+                    room_id=current_room_id,
+                    player_id=player_id,
+                )
+
+                await connection_manager.broadcast_to_room(
+                    room.id,
+                    {
+                        "type": "GAME_STARTED",
+                    },
+                )
+
+                game = await game_repository.get_game(
+                    room.game_id
+                )
+
+                if game is None:
+                    raise ValueError(
+                        "GAME_STATE_NOT_FOUND"
+                    )
+
+                await connection_manager.broadcast_to_room(
+                    room.id,
+                    {
+                        "type": "GAME_STATE",
+                        "game": game.model_dump(
+                            mode="json"
+                        ),
+                    },
+                )
+
+                continue
+
+            # ---------------------------------------------------------
+            # UNKNOWN MESSAGE
+            # ---------------------------------------------------------
+            await send_error(
+                code="UNKNOWN_MESSAGE",
+                message="Unsupported message type.",
+                request_id=message.get(
+                    "request_id"
+                ),
             )
 
     except WebSocketDisconnect:
@@ -207,6 +337,21 @@ async def websocket_endpoint(websocket: WebSocket):
             player_id,
         )
 
+    except ValueError as exc:
+        logger.exception(
+            "WebSocket validation error: %s | player=%s",
+            client,
+            player_id,
+        )
+
+        try:
+            await send_error(
+                code=str(exc),
+                message=str(exc),
+            )
+        except Exception:
+            pass
+
     except Exception:
         logger.exception(
             "WebSocket error: %s | player=%s",
@@ -215,6 +360,8 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         try:
-            await websocket.close(code=1011)
+            await websocket.close(
+                code=1011
+            )
         except Exception:
             pass

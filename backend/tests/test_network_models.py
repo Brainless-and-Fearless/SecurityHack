@@ -26,6 +26,7 @@ from network_models import (
     RoomStateMessage,
     StartGameMessage,
     UpgradeNodeMessage,
+    RoomPlayerState
 )
 
 
@@ -56,23 +57,6 @@ def test_create_room_message_requires_request_id():
             type="CREATE_ROOM",
             nickname="Alice",
         )
-
-
-def test_room_state_message_accepts_room():
-    room = Room(
-        id="room_1",
-        host_id="player_1",
-        status=RoomStatus.LOBBY,
-        player_ids=["player_1"],
-    )
-
-    message = RoomStateMessage(
-        type="ROOM_STATE",
-        room=room,
-    )
-
-    assert message.type == "ROOM_STATE"
-    assert message.room == room
 
 
 def test_room_created_message_accepts_valid_data():
@@ -316,3 +300,79 @@ def test_game_finished_message_allows_draw():
     )
 
     assert message.winner_id is None    
+
+
+def test_room_player_state_accepts_valid_data():
+    player = RoomPlayerState(
+        id="player_1",
+        name="Alice",
+        isHost=True,
+        status="online",
+    )
+
+    assert player.id == "player_1"
+    assert player.name == "Alice"
+    assert player.is_host is True
+    assert player.status == "online"
+
+
+def test_room_state_message_accepts_frontend_contract():
+    player = RoomPlayerState(
+        id="player_1",
+        name="Alice",
+        isHost=True,
+        status="online",
+    )
+
+    message = RoomStateMessage(
+        type="ROOM_STATE",
+        you=player,
+        roomCode="A7FK3M",
+        players=[player],
+    )
+
+    assert message.type == "ROOM_STATE"
+    assert message.you == player
+    assert message.room_code == "A7FK3M"
+    assert message.players == [player]    
+
+
+def test_room_state_message_rejects_invalid_room_code():
+    player = RoomPlayerState(
+        id="player_1",
+        name="Alice",
+        isHost=True,
+        status="online",
+    )
+
+    with pytest.raises(ValidationError):
+        RoomStateMessage(
+            type="ROOM_STATE",
+            you=player,
+            roomCode="ABC",
+            players=[player],
+        )    
+
+
+def test_room_state_message_serializes_for_frontend():
+    player = RoomPlayerState(
+        id="player_1",
+        name="Alice",
+        is_host=True,
+        status="online",
+    )
+
+    message = RoomStateMessage(
+        type="ROOM_STATE",
+        you=player,
+        room_code="A7FK3M",
+        players=[player],
+    )
+
+    data = message.model_dump(
+        mode="json",
+        by_alias=True,
+    )
+
+    assert data["roomCode"] == "A7FK3M"
+    assert data["you"]["isHost"] is True

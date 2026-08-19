@@ -1,3 +1,5 @@
+import pytest
+
 from models import DefenceLevel, GameStatus, Node
 from game_logic import (
     MAX_RESOURCES,
@@ -538,3 +540,66 @@ def test_game_can_end_in_a_draw():
         tick_game(game)
 
     assert game.status == GameStatus.FINISHED
+
+
+def test_add_player_can_use_explicit_start_node():
+    game = create_game(
+        [
+            Node(id="A"),
+            Node(id="B"),
+        ]
+    )
+
+    player = add_player(
+        game,
+        player_id="player_1",
+        nickname="Alice",
+        start_node_id="B",
+    )
+
+    assert player.owned_node_ids == ["B"]
+    assert game.nodes["B"].owner_id == "player_1"
+    assert game.nodes["A"].owner_id is None    
+
+
+def test_add_player_rejects_occupied_start_node():
+    game = create_game(
+        [
+            Node(
+                id="A",
+                owner_id="player_1",
+            ),
+            Node(id="B"),
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="START_NODE_UNAVAILABLE",
+    ):
+        add_player(
+            game,
+            player_id="player_2",
+            nickname="Bob",
+            start_node_id="A",
+        )    
+
+
+def test_add_player_rejects_unknown_start_node():
+    game = create_game(
+        [
+            Node(id="A"),
+            Node(id="B"),
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="START_NODE_NOT_FOUND",
+    ):
+        add_player(
+            game,
+            player_id="player_1",
+            nickname="Alice",
+            start_node_id="Z",
+        )        

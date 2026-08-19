@@ -46,6 +46,10 @@ class Room(BaseModel):
 
     player_ids: list[str] = Field(default_factory=list)
 
+    player_nicknames: dict[str, str] = Field(
+        default_factory=dict
+    )
+    
     max_players: int = Field(
         default=8,
         ge=2,

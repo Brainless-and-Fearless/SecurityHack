@@ -55,6 +55,7 @@ def add_player(
     game: GameState,
     player_id: str,
     nickname: str,
+    start_node_id: Optional[str] = None,
 ) -> Player:
     """
     Add a player to the game and assign a free starting node.
@@ -66,7 +67,10 @@ def add_player(
     if player_id in game.players:
         raise ValueError("Player with this id already exists.")
 
-    start_node = assign_start_node(game)
+    start_node = assign_start_node(
+        game,
+        start_node_id,
+    )
 
     if start_node is None:
         raise ValueError("No free starting node is available.")
@@ -86,15 +90,27 @@ def add_player(
     return player
 
 
-def assign_start_node(game: GameState) -> Optional[Node]:
+def assign_start_node(
+    game: GameState,
+    start_node_id: Optional[str] = None,
+) -> Optional[Node]:
     """
     Find a suitable free starting node.
 
-    The actual map is responsible for defining which nodes
-    are valid starting positions.
-
-    For now we use the first free node without an owner.
+    If start_node_id is provided, use that exact node.
+    Otherwise, fall back to the first free node.
     """
+
+    if start_node_id is not None:
+        node = game.nodes.get(start_node_id)
+
+        if node is None:
+            raise ValueError("START_NODE_NOT_FOUND")
+
+        if node.owner_id is not None:
+            raise ValueError("START_NODE_UNAVAILABLE")
+
+        return node
 
     for node in game.nodes.values():
         if node.owner_id is None:
@@ -111,8 +127,8 @@ def start_game(game: GameState) -> None:
     if game.status != GameStatus.WAITING:
         raise ValueError("Game cannot be started from its current state.")
 
-    if len(game.players) < 1:
-        raise ValueError("At least one player is required to start the game.")
+    if len(game.players) < 2:
+        raise ValueError("At least two player is required to start the game.")
 
     game.status = GameStatus.RUNNING
     game.remaining_time_seconds = MATCH_DURATION_SECONDS
