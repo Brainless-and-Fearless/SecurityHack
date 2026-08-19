@@ -9,7 +9,10 @@ export class Controller {
         this.playerScore = document.getElementById('player-score');
         this.playerResources = document.getElementById('player-resources');
         this.gameTimer = document.getElementById('game-timer');
+        this.hudTimerItem = document.getElementById('hud-timer-item');
         this.timerId = null;
+        this._prevResources = null;
+        this._prevScore = null;
         this.initEvents();
     }
 
@@ -106,9 +109,31 @@ export class Controller {
     updateHud() {
         const nickname = this.room ? this.room.you.name : 'Игрок';
         const score = this.model.state.players[nickname] ?? 0;
+        const resources = this.model.state.resources;
+        const remaining = this.model.state.remainingTimeSeconds;
+
         this.playerScore.textContent = `Очки: ${score}`;
-        this.playerResources.textContent = String(this.model.state.resources);
-        this.gameTimer.textContent = this.formatTime(this.model.state.remainingTimeSeconds);
+        this._flashChange(this.playerResources, this._prevResources, resources);
+        this.playerResources.textContent = String(resources);
+        this.gameTimer.textContent = this.formatTime(remaining);
+
+        this._prevResources = resources;
+        this._prevScore = score;
+
+        if (this.hudTimerItem) {
+            this.hudTimerItem.classList.toggle('is-critical', remaining <= 60);
+            this.hudTimerItem.classList.toggle('is-warn', remaining > 60 && remaining <= 180);
+        }
+    }
+
+    _flashChange(el, prevValue, nextValue) {
+        if (prevValue === null || nextValue === prevValue) return;
+        const cls = nextValue > prevValue ? 'bump-up' : 'bump-down';
+        el.classList.remove('bump-up', 'bump-down');
+        // Форсируем перезапуск анимации
+        void el.offsetWidth;
+        el.classList.add(cls);
+        el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
     }
 
     formatTime(totalSeconds) {
