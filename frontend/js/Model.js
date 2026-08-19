@@ -1,34 +1,39 @@
 export class Model {
     constructor() {
-        // this.state — аналог self.state в Python (внутри __init__)
         this.state = {
-            players: {}, // Словарь очков: { 'Agent007': 15 }
-            nodes: []    // Массив (список) узлов-объектов
+            players: {},
+            nodes: [],
+            resources: 100,
+            remainingTimeSeconds: 10 * 60
         };
     }
 
-    // Инициализация стартового состояния
     generateNodes() {
-        // Добавляем центральный узел (Core Server)
         this.state.nodes.push({
             id: 0,
             owner: null,
-            defenceLevel: 0, // Максимальная защита K=3
-            x: 0, 
+            defenceLevel: 0,
+            x: 0,
             y: 0
         });
     }
 
-    // Бизнес-логика обработки результатов взлома
     updateScore(nickname, isSuccess, kLevel) {
         if (this.state.players[nickname] === undefined) {
             this.state.players[nickname] = 0;
         }
-        
+
         if (isSuccess) {
-            this.state.players[nickname] += kLevel * 5; //
+            this.state.players[nickname] += kLevel * 5;
         } else {
-            this.state.players[nickname] -= kLevel * 3; //
+            this.state.players[nickname] -= kLevel * 3;
         }
+    }
+
+    resetGame() {
+        this.state.players = {};
+        this.state.nodes = [];
+        this.state.resources = 100;
+        this.state.remainingTimeSeconds = 10 * 60;
     }
 }
