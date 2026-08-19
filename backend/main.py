@@ -93,10 +93,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     room = await room_service.create_room(room_id, player_id)
 
                     await manager.connect(player_id, room.id, websocket)
-                    await manager.broadcast_to_room(room.id, {
-                        "type": "ROOM_STATE",
-                        "room": room.model_dump(mode="json"),
-                    })
 
                     response = RoomCreatedMessage(
                         type="ROOM_CREATED",
@@ -106,6 +102,11 @@ async def websocket_endpoint(websocket: WebSocket):
                         is_host=True,
                     )
                     await websocket.send_json(response.model_dump(mode="json"))
+
+                    await manager.broadcast_to_room(room.id, {
+                        "type": "ROOM_STATE",
+                        "room": room.model_dump(mode="json"),
+                    })
                     continue
 
                 if message_type == "JOIN_ROOM":
@@ -113,10 +114,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     room = await room_service.join_room(request.room_id, player_id)
 
                     await manager.connect(player_id, room.id, websocket)
-                    await manager.broadcast_to_room(room.id, {
-                        "type": "ROOM_STATE",
-                        "room": room.model_dump(mode="json"),
-                    })
 
                     response = RoomJoinedMessage(
                         type="ROOM_JOINED",
@@ -126,10 +123,15 @@ async def websocket_endpoint(websocket: WebSocket):
                         is_host=room.host_id == player_id,
                     )
                     await websocket.send_json(response.model_dump(mode="json"))
+
+                    await manager.broadcast_to_room(room.id, {
+                        "type": "ROOM_STATE",
+                        "room": room.model_dump(mode="json"),
+                    })
                     continue
 
                 if message_type == "START_GAME":
-                    request = StartGameMessage.model_validate(message)
+                    StartGameMessage.model_validate(message)
                     room_id = manager.player_rooms.get(player_id)
                     if room_id is None:
                         raise ValueError("PLAYER_NOT_IN_ROOM")
