@@ -4,10 +4,12 @@ export class Controller {
         this.view = view;
         this.lobbyView = lobbyView;
         this.lobbyTransport = lobbyTransport;
-
-        // game-screen элементы — как в исходном Controller.js
         this.gameScreen = document.getElementById('game-screen');
-
+        this.playerName = document.getElementById('player-name');
+        this.playerScore = document.getElementById('player-score');
+        this.playerResources = document.getElementById('player-resources');
+        this.gameTimer = document.getElementById('game-timer');
+        this.timerId = null;
         this.initEvents();
     }
 
@@ -16,7 +18,6 @@ export class Controller {
 
         lv.modeCreateBtn.addEventListener('click', () => lv.setEntryMode('create'));
         lv.modeJoinBtn.addEventListener('click', () => lv.setEntryMode('join'));
-
         lv.entrySubmit.addEventListener('click', () => this.handleEntrySubmit());
         lv.copyBtn.addEventListener('click', () => this.handleCopyCode());
         lv.leaveBtn.addEventListener('click', () => this.handleLeaveRoom());
@@ -42,22 +43,18 @@ export class Controller {
                 lv.showEntryFieldError('roomCode', 'Введите код комнаты');
                 return;
             }
-            // CLIENT -> SERVER: JOIN_ROOM
             this.lobbyTransport.joinRoom(nickname, code);
         } else {
-            // CLIENT -> SERVER: CREATE_ROOM
             this.lobbyTransport.createRoom(nickname);
         }
     }
 
-    // Вызывается транспортом (моком или реальным Network.js) при ROOM_CREATED/ROOM_JOINED/ROOM_STATE
     onRoomState(room) {
         this.room = room;
         this.lobbyView.showLobbyScreen();
         this.lobbyView.renderRoom(room);
     }
 
-    // Вызывается транспортом при ERROR
     onNetworkError(message) {
         this.lobbyView.showToast('error', message);
     }
@@ -70,6 +67,7 @@ export class Controller {
     }
 
     handleLeaveRoom() {
+        this.stopGameTimer();
         this.lobbyTransport.leaveRoom();
         this.room = null;
         this.lobbyView.showEntryScreen();
@@ -77,11 +75,9 @@ export class Controller {
     }
 
     handleStartGame() {
-        // CLIENT -> SERVER: START_GAME (только у хоста кнопка видна)
         this.lobbyTransport.startGame();
     }
 
-    // Вызывается транспортом при GAME_STARTED — синхронный старт для всех игроков
     onGameStarted() {
         this.lobbyView.runStartCountdown(() => this.startGame());
     }
@@ -93,17 +89,53 @@ export class Controller {
         this.lobbyView.hideAll();
         this.gameScreen.classList.remove('hidden');
 
-        console.log(`Агент ${nickname} успешно подключен к системе.`);
-
-        // 1. Просим Мозг сгенерировать Ядро (Core Server)
+        this.model.resetGame();
+        this.model.state.players[nickname] = 0;
         this.model.generateNodes();
 
-        // 2. Просим Вид отрисовать узлы на холсте
+        this.playerName.textContent = nickname;
+        this.updateHud();
+        this.startGameTimer();
         this.view.render(this.model.state.nodes);
 
-        // 3. Запускаем игровую экономику (MockClient)
         if (this.network) {
             this.network.startSimulation();
+        }
+    }
+
+    updateHud() {
+        const nickname = this.room ? this.room.you.name : 'Игрок';
+        const score = this.model.state.players[nickname] ?? 0;
+        this.playerScore.textContent = `Очки: ${score}`;
+        this.playerResources.textContent = String(this.model.state.resources);
+        this.gameTimer.textContent = this.formatTime(this.model.state.remainingTimeSeconds);
+    }
+
+    formatTime(totalSeconds) {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    startGameTimer() {
+        this.stopGameTimer();
+        this.timerId = setInterval(() => {
+            if (this.model.state.remainingTimeSeconds <= 0) {
+                this.model.state.remainingTimeSeconds = 0;
+                this.updateHud();
+                this.stopGameTimer();
+                return;
+            }
+
+            this.model.state.remainingTimeSeconds -= 1;
+            this.updateHud();
+        }, 1000);
+    }
+
+    stopGameTimer() {
+        if (this.timerId !== null) {
+            clearInterval(this.timerId);
+            this.timerId = null;
         }
     }
 }
