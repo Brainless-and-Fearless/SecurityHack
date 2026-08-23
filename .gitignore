@@ -11,3 +11,7 @@ __pycache__/
 
 t_result.txt
 .vscode/
+
+# Node.js
+frontend/node_modules/
+frontend/.vite/

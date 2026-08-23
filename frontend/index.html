@@ -4,93 +4,91 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Война серверов: Битва за узлы</title>
-    <!-- Подключение шрифтов Inter и JetBrains Mono -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-    <!-- Фон: голографический граф поля, растёт по мере подключения игроков в лобби -->
     <canvas id="bg-graph"></canvas>
 
-    <!-- ================= ЭКРАН 1: ВХОД (CREATE_ROOM / JOIN_ROOM) ================= -->
     <div id="screen-entry" class="glass-panel">
         <div class="brand">
             <span class="brand-mark">// SERVER_WAR.EXE</span>
             <h1>Война серверов</h1>
             <p>Битва за узлы — зайдите под своим ником</p>
         </div>
-
         <div class="field">
             <label for="nickname-input">Никнейм</label>
             <input type="text" id="nickname-input" placeholder="Введите никнейм" maxlength="16">
             <div class="field-error" id="nickname-error"></div>
         </div>
-
         <div class="mode-switch" role="tablist">
             <button type="button" id="mode-create" class="active" role="tab" aria-selected="true">Создать комнату</button>
             <button type="button" id="mode-join" role="tab" aria-selected="false">Войти по коду</button>
         </div>
-
         <div id="entry-code-field" class="field">
             <label for="room-code-input">Код комнаты</label>
             <input type="text" id="room-code-input" class="font-code" placeholder="НАПРИМЕР A7F2Q3" maxlength="6">
             <div class="field-error" id="room-code-error"></div>
         </div>
-
         <button type="button" id="entry-submit" class="btn-primary">Создать комнату</button>
         <div class="field-error" id="entry-network-error"></div>
     </div>
 
-    <!-- ================= ЭКРАН 2: ЛОББИ (ROOM_STATE) ================= -->
     <div id="screen-lobby" class="glass-panel hidden">
         <div class="lobby-topbar">
             <div class="room-code-chip">
-                <div>
-                    <span class="label">Код комнаты</span>
-                    <span class="code font-code" id="lobby-room-code">—</span>
-                </div>
+                <div><span class="label">Код комнаты</span><span class="code font-code" id="lobby-room-code">—</span></div>
                 <button type="button" class="copy-btn" id="copy-code-btn" title="Скопировать код" aria-label="Скопировать код комнаты">⧉</button>
             </div>
             <button type="button" class="btn-danger-ghost" id="leave-room-btn">Покинуть</button>
         </div>
-
         <div class="lobby-body">
-            <div class="section-heading">
-                <span>Игроки</span>
-                <span class="count" id="player-count">1/8</span>
-            </div>
+            <div class="section-heading"><span>Игроки</span><span class="count" id="player-count">1/8</span></div>
             <div class="player-list" id="player-list"></div>
         </div>
-
         <div class="lobby-footer">
             <button type="button" class="btn-success hidden" id="start-game-btn">Начать игру</button>
             <div class="start-hint hidden" id="start-hint"></div>
-            <div class="waiting-host hidden" id="waiting-host">
-                <span class="spinner"></span>
-                <span>Ждём, когда хост начнёт игру</span>
-            </div>
+            <div class="waiting-host hidden" id="waiting-host"><span class="spinner"></span><span>Ждём, когда хост начнёт игру</span></div>
         </div>
     </div>
 
     <div id="toast-stack"></div>
+    <div id="start-overlay" class="hidden"><div id="start-count">3</div><p>Синхронный старт для всех игроков…</p></div>
 
-    <div id="start-overlay" class="hidden">
-        <div id="start-count">3</div>
-        <p>Синхронный старт для всех игроков…</p>
-    </div>
-
-    <!-- ================= ЭКРАН 3: ИГРА (GAME_STARTED) — без изменений ================= -->
     <div id="game-screen" class="hidden">
         <header class="dashboard glass-panel">
             <div class="player-info">
-                <span id="player-name">Игрок</span>
-                <span id="player-score" class="rank-elite">Очки: 0</span>
+                <span class="player-live-dot" aria-hidden="true"></span>
+                <div class="player-info-text">
+                    <span id="player-name">Игрок</span>
+                    <span id="player-score" class="rank-elite">Очки: 0</span>
+                </div>
+            </div>
+            <div class="hud-divider" aria-hidden="true"></div>
+            <div class="game-hud" aria-label="Показатели игры">
+                <div class="hud-item hud-resources">
+                    <span class="hud-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" fill="currentColor"/></svg>
+                    </span>
+                    <span class="hud-text">
+                        <span class="hud-label">Ресурсы</span>
+                        <span id="player-resources" class="hud-value font-code">100</span>
+                    </span>
+                </div>
+                <div class="hud-item hud-timer" id="hud-timer-item">
+                    <span class="hud-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 2h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    </span>
+                    <span class="hud-text">
+                        <span class="hud-label">Время</span>
+                        <span id="game-timer" class="hud-value font-code">10:00</span>
+                    </span>
+                </div>
             </div>
         </header>
-
         <canvas id="game-canvas"></canvas>
-
         <div id="task-modal" class="glass-panel hidden">
             <h2 id="task-title" class="font-code">Взлом узла...</h2>
             <p id="task-desc">Описание задачи появится здесь</p>
@@ -100,7 +98,6 @@
         </div>
     </div>
 
-    <!-- Подключение главного скрипта -->
     <script type="module" src="js/app.js"></script>
 </body>
 </html>
