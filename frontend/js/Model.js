@@ -10,9 +10,10 @@ export class Model {
     }
 
     generateNodes() {
+        const myId = this.state.myPlayerId ?? 'player-1';
         this.state.nodes = [
-            { id: 'core', owner_id: 'player-1', defence_level: 3, neighbor_ids: ['n1', 'n2'], active_attack_player_id: null, x: 0, y: 0 },
-            { id: 'n1', owner_id: 'player-1', defence_level: 2, neighbor_ids: ['core', 'n3', 'n4'], active_attack_player_id: null, x: -150, y: -150 },
+            { id: 'core', owner_id: myId, defence_level: 3, neighbor_ids: ['n1', 'n2'], active_attack_player_id: null, x: 0, y: 0 },
+            { id: 'n1', owner_id: myId, defence_level: 2, neighbor_ids: ['core', 'n3', 'n4'], active_attack_player_id: null, x: -150, y: -150 },
             { id: 'n2', owner_id: null, defence_level: 1, neighbor_ids: ['core', 'n5'], active_attack_player_id: null, x: 150, y: -150 },
             { id: 'n3', owner_id: 'player-2', defence_level: 3, neighbor_ids: ['n1', 'n6'], active_attack_player_id: null, x: -300, y: 0 },
             { id: 'n4', owner_id: null, defence_level: 1, neighbor_ids: ['n1', 'n5'], active_attack_player_id: null, x: 0, y: 150 },
