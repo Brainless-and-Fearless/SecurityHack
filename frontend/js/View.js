@@ -6,6 +6,7 @@ export class View {
         this.selectedNodeId = null;
         this.hoveredNodeId = null;
         this.previousOwners = new Map();
+        this.previousAttackers = new Map();
         this.captureAnimations = new Map();
         this.playerColors = [
             '#4F46E5', '#10B981', '#F59E0B', '#EC4899',
@@ -165,14 +166,23 @@ export class View {
         const attackable = this.computeAttackableIds();
         const now = performance.now();
 
-        // Detect ownership changes and show a short capture animation.
+        // Detect attack start and ownership changes for the node-state animations.
         for (const node of nodes) {
             const id = String(node.id);
             const owner = this.getOwner(node);
-            if (this.previousOwners.has(id) && this.previousOwners.get(id) !== owner) {
+            const attacker = node.active_attack_player_id ?? node.activeAttackPlayerId ?? null;
+            const previousOwner = this.previousOwners.get(id);
+            const previousAttacker = this.previousAttackers.get(id);
+
+            if (previousAttacker == null && attacker != null) {
+                this.startCaptureAnimation(id, 'capturing');
+            }
+            if (previousOwner !== undefined && previousOwner !== owner) {
                 this.startCaptureAnimation(id, 'captured');
             }
+
             this.previousOwners.set(id, owner);
+            this.previousAttackers.set(id, attacker);
         }
 
         // Draw each edge once.
@@ -242,7 +252,6 @@ export class View {
                 this.ctx.globalAlpha = 1;
             }
 
-            // Hover gets a soft, slightly larger highlight.
             if (isHovered) {
                 const hoverPulse = (Math.sin(now / 180) + 1) / 2;
                 this.ctx.beginPath();
