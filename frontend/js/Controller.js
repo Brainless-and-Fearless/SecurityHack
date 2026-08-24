@@ -87,14 +87,17 @@ export class Controller {
 
     startGame() {
         const nickname = this.room ? this.room.you.name : 'Игрок';
+        const myPlayerId = this.room?.you?.id ?? null;
 
         this.lobbyView.stopAmbientLoop();
         this.lobbyView.hideAll();
         this.gameScreen.classList.remove('hidden');
 
         this.model.resetGame();
+        this.model.state.myPlayerId = myPlayerId;
         this.model.state.players[nickname] = 0;
         this.model.generateNodes();
+        this.view.setMyPlayerId(myPlayerId);
 
         this.playerName.textContent = nickname;
         this.updateHud();
@@ -130,7 +133,6 @@ export class Controller {
         if (prevValue === null || nextValue === prevValue) return;
         const cls = nextValue > prevValue ? 'bump-up' : 'bump-down';
         el.classList.remove('bump-up', 'bump-down');
-        // Форсируем перезапуск анимации
         void el.offsetWidth;
         el.classList.add(cls);
         el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
