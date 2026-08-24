@@ -103,7 +103,15 @@ def test_second_player_can_join_room():
                 player_room_state = player_ws.receive_json()
 
                 assert player_room_state["type"] == "ROOM_STATE"
+                
+                assert player_room_state["mapPreview"] is not None
 
+                player_preview = player_room_state["mapPreview"]
+
+                assert player_preview["orbitCount"] > 0
+                assert len(player_preview["nodes"]) > 0
+                assert len(player_preview["edges"]) > 0
+                assert len(player_preview["spawnNodes"]) > 0
                 player_joined = player_ws.receive_json()
 
                 assert player_joined["type"] == "ROOM_JOINED"
@@ -153,12 +161,37 @@ def test_second_player_can_join_room():
                 assert host_updated_state["type"] == "ROOM_STATE"
                 assert host_updated_state["roomCode"] == room_id
 
+                assert player_room_state["you"]["name"] == "Bob"
+                assert player_room_state["you"]["isHost"] is False
+
+                assert host_updated_state["you"]["name"] == "Alice"
+                assert host_updated_state["you"]["isHost"] is True
+
+                assert (
+                    player_room_state["mapPreview"]
+                    == host_updated_state["mapPreview"]
+                )
+
+                assert host_updated_state["mapPreview"] is not None
+
+                host_preview = host_updated_state["mapPreview"]
+
+                assert host_preview == player_preview
                 assert {
                     player["id"]
                     for player in host_updated_state["players"]
                 } == {
                     host_player_id,
                     player_joined["player_id"],
+                }
+
+                preview_node = player_preview["nodes"][0]
+
+                assert set(preview_node) == {
+                    "id",
+                    "orbit",
+                    "x",
+                    "y",
                 }
 
 
@@ -289,3 +322,39 @@ def test_host_can_start_game_and_all_players_receive_game_state():
                 assert len(game["nodes"]) > 0
 
                 assert player_joined["player_id"] in game["players"]
+
+                host_player_id = host_created["player_id"]
+                player_id = player_joined["player_id"]
+
+                assert host_player_id in game["players"]
+                assert player_id in game["players"]
+
+                host_player = game["players"][host_player_id]
+                joined_player = game["players"][player_id]
+
+                assert host_player["id"] == host_player_id
+                assert host_player["nickname"] == "Alice"
+                assert host_player["score"] == 0
+                assert host_player["resources"] == 20.0
+
+                assert joined_player["id"] == player_id
+                assert joined_player["nickname"] == "Bob"
+                assert joined_player["score"] == 0
+                assert joined_player["resources"] == 20.0
+
+                assert len(host_player["owned_node_ids"]) == 1
+                assert len(joined_player["owned_node_ids"]) == 1
+
+                assert (
+                    set(host_player["owned_node_ids"]).isdisjoint(
+                        joined_player["owned_node_ids"]
+                    )
+                )
+
+                assert game["tasks"] == {}
+
+                for node_id, node in game["nodes"].items():
+                    assert node["id"] == node_id
+                    assert node["defence_level"] == "K1"
+
+                    

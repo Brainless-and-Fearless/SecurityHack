@@ -1,6 +1,6 @@
 import pytest
 
-from models import DefenceLevel, GameStatus, Node
+from models import DefenceLevel, GameStatus, Node, Player
 from game_logic import (
     MAX_RESOURCES,
     RESOURCE_INCOME_PER_NODE,
@@ -603,3 +603,11 @@ def test_add_player_rejects_unknown_start_node():
             nickname="Alice",
             start_node_id="Z",
         )        
+
+def test_player_default_resources_are_20():
+    player = Player(
+        id="player_1",
+        nickname="Alice",
+    )
+
+    assert player.resources == 20.0        

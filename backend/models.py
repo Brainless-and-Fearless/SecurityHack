@@ -2,6 +2,10 @@ from enum import Enum
 from typing import Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
+import secrets
+
+
+STARTING_RESOURCES = 20.0
 
 
 class DefenceLevel(str, Enum):
@@ -23,13 +27,14 @@ class RoomStatus(str, Enum):
 
 
 class Player(BaseModel):
+
     id: str
     nickname: str
 
     score: int = 0
 
     resources: float = Field(
-        default=5.0,
+        default=STARTING_RESOURCES,
         ge=0,
         le=200,
     )
@@ -58,6 +63,10 @@ class Room(BaseModel):
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+    map_preview_seed: int = Field(
+        default_factory=lambda: secrets.randbelow(2**31),
     )
 
     game_id: Optional[str] = None

@@ -398,3 +398,26 @@ async def test_start_game_updates_room_after_game_service_succeeds(
 
     assert stored_room.status == RoomStatus.RUNNING
     assert stored_room.game_id == "game_123"        
+
+
+@pytest.mark.anyio
+async def test_create_room_generates_stable_map_preview_seed(
+    room_service,
+    room_repository,
+):
+    room = await room_service.create_room(
+        room_id="ABC234",
+        host_id="player_1",
+        nickname="Alice",
+    )
+
+    assert room.map_preview_seed is not None
+    assert isinstance(room.map_preview_seed, int)
+
+    saved_room = await room_repository.get_room(
+        "ABC234"
+    )
+
+    assert saved_room.map_preview_seed == (
+        room.map_preview_seed
+    )

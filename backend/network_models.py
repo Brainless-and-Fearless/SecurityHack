@@ -22,6 +22,24 @@ class RoomPlayerState(BaseModel):
     )
 
 
+class MapPreviewNode(BaseModel):
+    id: str
+    orbit: int
+    x: float
+    y: float
+
+
+class MapPreview(BaseModel):
+    orbit_count: int = Field(alias="orbitCount")
+    nodes: list[MapPreviewNode]
+    edges: list[tuple[str, str]]
+    spawn_nodes: list[str] = Field(alias="spawnNodes")
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )    
+
+
 class RoomStateMessage(BaseModel):
     type: Literal["ROOM_STATE"]
     you: RoomPlayerState
@@ -32,6 +50,11 @@ class RoomStateMessage(BaseModel):
         populate_by_name=True,
     )
 
+    map_preview: MapPreview | None = Field(
+        default=None,
+        alias="mapPreview",
+    )    
+    
     @field_validator("room_code")
     @classmethod
     def validate_room_code(cls, value: str) -> str:
@@ -136,3 +159,5 @@ class GameFinishedMessage(BaseModel):
     game_id: str
     winner_id: str | None = None
     scores: dict[str, int]
+
+

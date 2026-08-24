@@ -241,18 +241,19 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 current_room_id = room.id
 
-                room_state = build_room_state(
-                    room=room,
-                    current_player_id=player_id,
-                )
+                for target_player_id in room.player_ids:
+                    room_state = build_room_state(
+                        room=room,
+                        current_player_id=target_player_id,
+                    )
 
-                await connection_manager.broadcast_to_room(
-                    room.id,
-                    room_state.model_dump(
-                        mode="json",
-                        by_alias=True,
-                    ),
-                )
+                    await connection_manager.send_to_player(
+                        target_player_id,
+                        room_state.model_dump(
+                            mode="json",
+                            by_alias=True,
+                        ),
+                    )
 
                 response = RoomJoinedMessage(
                     type="ROOM_JOINED",

@@ -150,6 +150,8 @@ export class Controller {
             gameState.game
         );
 
+        this.updateHud();
+
         this.view.render(
             Object.values(this.model.state.nodes)
         );
@@ -188,7 +190,7 @@ export class Controller {
         const resources = player?.resources ?? 0;
 
         const remaining =
-            this.model.state.remaining_time_seconds ?? 0;
+            this.model.state.remainingTimeSeconds ?? 0;
 
         this.playerScore.textContent =
             `Очки: ${score}`;

@@ -36,3 +36,20 @@ describe('Network', () => {
         });
     });
 });
+
+
+test('uses websocket URL from runtime configuration', () => {
+    vi.stubGlobal('window', {
+        GAME_CONFIG: {
+            websocketUrl: 'ws://configured.example/ws',
+        },
+    });
+
+    const network = new Network({});
+
+    expect(network.url).toBe(
+        'ws://configured.example/ws'
+    );
+
+    vi.unstubAllGlobals();
+});

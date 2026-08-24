@@ -35,7 +35,6 @@ export class LobbyView {
         // Фоновый граф
         this.canvas = document.getElementById('bg-graph');
         this.ctx = this.canvas.getContext('2d');
-        this.rotation = 0;
         this.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         this._resizeCanvas();
         window.addEventListener('resize', () => this._resizeCanvas());
@@ -164,7 +163,7 @@ export class LobbyView {
         }
 
         this._room = room;
-        this._drawGraph();
+        this._drawMapPreview();
     }
 
     flashCopied() {
@@ -207,72 +206,85 @@ export class LobbyView {
         }, 700);
     }
 
-    // ---------- Фоновый граф лобби ----------
-    // Угол спавна узла-игрока = 360 / N, равное удаление от центра (Game_Concept_Final, п.2)
-    _drawGraph() {
-        const room = this._room;
-        const w = this.canvas.width, h = this.canvas.height;
+
+    _drawMapPreview() {
+        const preview = this._room?.mapPreview;
+
+        const w = this.canvas.width;
+        const h = this.canvas.height;
         const ctx = this.ctx;
+
         ctx.clearRect(0, 0, w, h);
-        const cx = w / 2, cy = h / 2;
-        const orbitR = Math.min(w, h) * 0.34;
 
-        ctx.strokeStyle = 'rgba(79,70,229,0.12)';
+        const cx = w / 2;
+        const cy = h / 2;
+
+        const scale = Math.min(w, h) * 0.42;
+
+        if (!preview) {
+            return;
+        }
+
+        const positions = new Map();
+
+        for (const node of preview.nodes) {
+            positions.set(node.id, {
+                x: cx + node.x * scale,
+                y: cy + node.y * scale,
+            });
+        }
+
+        // Рёбра карты.
+        ctx.strokeStyle = 'rgba(79,70,229,0.22)';
         ctx.lineWidth = 1;
-        [0.55, 0.75, 1].forEach(f => {
+
+        for (const [sourceId, targetId] of preview.edges) {
+            const source = positions.get(sourceId);
+            const target = positions.get(targetId);
+
+            if (!source || !target) {
+                continue;
+            }
+
             ctx.beginPath();
-            ctx.arc(cx, cy, orbitR * f, 0, Math.PI * 2);
+            ctx.moveTo(source.x, source.y);
+            ctx.lineTo(target.x, target.y);
             ctx.stroke();
-        });
+        }
 
-        const pulse = 1 + Math.sin(Date.now() / 500) * 0.06;
-        const coreR = 10 * pulse;
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 4);
-        grad.addColorStop(0, 'rgba(79,70,229,0.9)');
-        grad.addColorStop(1, 'rgba(79,70,229,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(cx, cy, coreR * 4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#818CF8';
-        ctx.beginPath();
-        ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
-        ctx.fill();
+        // Узлы карты.
+        for (const node of preview.nodes) {
+            const position = positions.get(node.id);
 
-        if (!room || !room.players.length) return;
-        const n = room.players.length;
-        room.players.forEach((p, i) => {
-            const angle = (Math.PI * 2 * i / n) + this.rotation;
-            const x = cx + Math.cos(angle) * orbitR;
-            const y = cy + Math.sin(angle) * orbitR;
+            if (!position) {
+                continue;
+            }
 
-            ctx.strokeStyle = p.isHost ? 'rgba(129,140,248,0.35)' : 'rgba(79,70,229,0.25)';
-            ctx.lineWidth = 1;
+            const isSpawn =
+                preview.spawnNodes.includes(node.id);
+
+            const radius = isSpawn ? 7 : 4;
+
+            ctx.fillStyle = isSpawn
+                ? '#FBBF24'
+                : '#818CF8';
+
             ctx.beginPath();
-            ctx.moveTo(cx, cy);
-            ctx.lineTo(x, y);
-            ctx.stroke();
-
-            const color = p.status === 'reconnecting' ? '#F97316' : (p.isHost ? '#818CF8' : '#4F46E5');
-            const nodeGrad = ctx.createRadialGradient(x, y, 0, x, y, 16);
-            nodeGrad.addColorStop(0, color + 'CC');
-            nodeGrad.addColorStop(1, color + '00');
-            ctx.fillStyle = nodeGrad;
-            ctx.beginPath();
-            ctx.arc(x, y, 16, 0, Math.PI * 2);
+            ctx.arc(
+                position.x,
+                position.y,
+                radius,
+                0,
+                Math.PI * 2,
+            );
             ctx.fill();
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, 5, 0, Math.PI * 2);
-            ctx.fill();
-        });
+        }
     }
 
+
     startAmbientLoop() {
-        const step = () => {
-            if (!this.reduceMotion) this.rotation += 0.0009;
-            this._drawGraph();
+       const step = () => {
+            this._drawMapPreview();
             this._raf = requestAnimationFrame(step);
         };
         step();

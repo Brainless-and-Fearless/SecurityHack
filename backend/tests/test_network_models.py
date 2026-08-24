@@ -21,12 +21,14 @@ from network_models import (
     GameStartedMessage,
     GameStateMessage,
     JoinRoomMessage,
+    MapPreview,
+    MapPreviewNode,
     RoomCreatedMessage,
     RoomJoinedMessage,
     RoomStateMessage,
     StartGameMessage,
     UpgradeNodeMessage,
-    RoomPlayerState
+    RoomPlayerState,
 )
 
 
@@ -376,3 +378,121 @@ def test_room_state_message_serializes_for_frontend():
 
     assert data["roomCode"] == "A7FK3M"
     assert data["you"]["isHost"] is True
+
+
+def test_map_preview_accepts_valid_data():
+    preview = MapPreview(
+        orbit_count=3,
+        nodes=[
+            MapPreviewNode(
+                id="n1_0",
+                orbit=1,
+                x=0.21,
+                y=-0.03,
+            ),
+            MapPreviewNode(
+                id="n3_0",
+                orbit=3,
+                x=0.58,
+                y=0.12,
+            ),
+        ],
+        edges=[
+            ("n1_0", "n1_1"),
+            ("n1_0", "n2_0"),
+        ],
+        spawn_nodes=[
+            "n3_0",
+            "n3_4",
+        ],
+    )
+
+    assert preview.orbit_count == 3
+    assert len(preview.nodes) == 2
+    assert preview.nodes[0].id == "n1_0"
+    assert preview.nodes[0].orbit == 1
+    assert preview.nodes[0].x == 0.21
+    assert preview.nodes[0].y == -0.03
+
+    assert preview.edges == [
+        ("n1_0", "n1_1"),
+        ("n1_0", "n2_0"),
+    ]
+
+    assert preview.spawn_nodes == [
+        "n3_0",
+        "n3_4",
+    ]
+
+
+def test_map_preview_serializes_with_frontend_field_names():
+    preview = MapPreview(
+        orbit_count=3,
+        nodes=[
+            MapPreviewNode(
+                id="n1_0",
+                orbit=1,
+                x=0.2,
+                y=0.1,
+            ),
+        ],
+        edges=[
+            ("n1_0", "n1_1"),
+        ],
+        spawn_nodes=[
+            "n3_0",
+        ],
+    )
+
+    data = preview.model_dump(
+        mode="json",
+        by_alias=True,
+    )
+
+    assert data["orbitCount"] == 3
+    assert data["spawnNodes"] == ["n3_0"]
+    assert data["nodes"][0]["id"] == "n1_0"
+    assert data["nodes"][0]["orbit"] == 1    
+
+
+def test_room_state_message_accepts_map_preview():
+    player = RoomPlayerState(
+        id="player_1",
+        name="Alice",
+        is_host=True,
+        status="online",
+    )
+
+    preview = MapPreview(
+        orbit_count=3,
+        nodes=[
+            MapPreviewNode(
+                id="n1_0",
+                orbit=1,
+                x=0.2,
+                y=0.1,
+            ),
+        ],
+        edges=[],
+        spawn_nodes=["n3_0"],
+    )
+
+    message = RoomStateMessage(
+        type="ROOM_STATE",
+        room_code="ABC234",
+        you=player,
+        players=[player],
+        map_preview=preview,
+    )
+
+    data = message.model_dump(
+        mode="json",
+        by_alias=True,
+    )
+
+    assert data["type"] == "ROOM_STATE"
+    assert data["roomCode"] == "ABC234"
+
+    assert data["mapPreview"]["orbitCount"] == 3
+    assert data["mapPreview"]["nodes"][0]["id"] == "n1_0"
+    assert data["mapPreview"]["spawnNodes"] == ["n3_0"]    

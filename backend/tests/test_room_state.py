@@ -72,3 +72,34 @@ def test_build_room_state_requires_player_in_room():
             room=room,
             current_player_id="player_999",
         )
+
+
+def test_build_room_state_contains_stable_map_preview():
+    room = Room(
+        id="ABC234",
+        host_id="player_1",
+        player_ids=[
+            "player_1",
+            "player_2",
+        ],
+        player_nicknames={
+            "player_1": "Alice",
+            "player_2": "Bob",
+        },
+        map_preview_seed=123456,
+    )
+
+    host_state = build_room_state(
+        room,
+        "player_1",
+    )
+
+    player_state = build_room_state(
+        room,
+        "player_2",
+    )
+
+    assert host_state.map_preview is not None
+    assert host_state.map_preview == (
+        player_state.map_preview
+    )        

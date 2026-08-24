@@ -1,5 +1,12 @@
 export class Network {
-    constructor(handlers, url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`) {
+    constructor(
+        handlers,
+        url = window.GAME_CONFIG?.websocketUrl,
+    ) {
+        if (!url) {
+            throw new Error('WS_URL_NOT_CONFIGURED');
+        }
+
         this.handlers = handlers;
         this.url = url;
         this.ws = null;
@@ -85,10 +92,23 @@ export class Network {
                 break;
 
             case 'ROOM_STATE': {
-                const room = data.room;
-                if (!room) return;
-                this.roomId = room.id;
-                this.handlers.onRoomState(this._roomToView(room));
+                this.roomId = data.roomCode;
+
+                this.you = data.you
+                    ? {
+                        id: data.you.id,
+                        nickname: data.you.name,
+                        isHost: data.you.isHost,
+                    }
+                    : null;
+
+                this.handlers.onRoomState?.({
+                    roomCode: data.roomCode,
+                    players: data.players,
+                    you: data.you,
+                    mapPreview: data.mapPreview,
+                });
+
                 break;
             }
 

@@ -317,7 +317,7 @@ describe('Controller', () => {
                         },
                     },
                     nodes: {},
-                    remaining_time_seconds: 847,
+                    remainingTimeSeconds: 847,
                 },
                 applyGameState: vi.fn(),
             };
@@ -485,3 +485,283 @@ describe('Controller', () => {
             setIntervalSpy.mockRestore();
             vi.unstubAllGlobals();
         });
+
+
+test('handles the complete room-to-game flow', () => {
+    const model = {
+        state: {
+            gameId: null,
+            status: 'waiting',
+            players: {},
+            nodes: {},
+            tasks: {},
+            remainingTimeSeconds: 0,
+        },
+
+        applyGameState: vi.fn(
+            (gameId, gameState) => {
+                model.state.gameId = gameId;
+                model.state.status = gameState.status;
+                model.state.players = gameState.players;
+                model.state.nodes = gameState.nodes;
+                model.state.tasks = gameState.tasks;
+                model.state.remainingTimeSeconds =
+                    gameState.remaining_time_seconds;
+            }
+        ),
+    };
+
+    const view = {
+        render: vi.fn(),
+    };
+
+    const lobbyView = {
+        modeCreateBtn: {
+            addEventListener: vi.fn(),
+        },
+        modeJoinBtn: {
+            addEventListener: vi.fn(),
+        },
+        entrySubmit: {
+            addEventListener: vi.fn(),
+        },
+        copyBtn: {
+            addEventListener: vi.fn(),
+        },
+        leaveBtn: {
+            addEventListener: vi.fn(),
+        },
+        startBtn: {
+            addEventListener: vi.fn(),
+        },
+
+        setEntryMode: vi.fn(),
+        startAmbientLoop: vi.fn(),
+        stopAmbientLoop: vi.fn(),
+        showLobbyScreen: vi.fn(),
+        renderRoom: vi.fn(),
+        runStartCountdown: vi.fn(),
+        hideAll: vi.fn(),
+    };
+
+    const elements = {
+        'game-screen': {
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+                toggle: vi.fn(),
+            },
+        },
+
+        'player-name': {
+            textContent: '',
+        },
+
+        'player-score': {
+            textContent: '',
+        },
+
+        'player-resources': {
+            textContent: '',
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+            },
+            addEventListener: vi.fn(),
+        },
+
+        'game-timer': {
+            textContent: '',
+        },
+
+        'hud-timer-item': {
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+                toggle: vi.fn(),
+            },
+        },
+    };
+
+    vi.stubGlobal('document', {
+        getElementById: vi.fn(
+            (id) =>
+                elements[id] ?? {
+                    addEventListener: vi.fn(),
+                    textContent: '',
+                    classList: {
+                        add: vi.fn(),
+                        remove: vi.fn(),
+                        toggle: vi.fn(),
+                    },
+                }
+        ),
+    });
+
+    const network = {
+        createRoom: vi.fn(),
+        joinRoom: vi.fn(),
+        leaveRoom: vi.fn(),
+        startGame: vi.fn(),
+    };
+
+    const controller = new Controller(
+        model,
+        view,
+        lobbyView,
+        network,
+    );
+
+    const room = {
+        roomCode: 'ABC234',
+
+        you: {
+            id: 'player_1',
+            name: 'Alice',
+            isHost: true,
+        },
+
+        players: [
+            {
+                id: 'player_1',
+                name: 'Alice',
+                isHost: true,
+                status: 'online',
+            },
+            {
+                id: 'player_2',
+                name: 'Bob',
+                isHost: false,
+                status: 'online',
+            },
+        ],
+
+        mapPreview: {
+            orbitCount: 3,
+            nodes: [
+                {
+                    id: 'n1_0',
+                    orbit: 1,
+                    x: 0.2,
+                    y: 0.1,
+                },
+                {
+                    id: 'n2_0',
+                    orbit: 2,
+                    x: 0.4,
+                    y: 0.2,
+                },
+            ],
+            edges: [
+                ['n1_0', 'n2_0'],
+            ],
+            spawnNodes: [
+                'n2_0',
+            ],
+        },
+    };
+
+    // 1. ROOM_STATE
+    controller.onRoomState(room);
+
+    expect(controller.room).toBe(room);
+    expect(
+        lobbyView.showLobbyScreen
+    ).toHaveBeenCalledTimes(1);
+
+    expect(
+        lobbyView.renderRoom
+    ).toHaveBeenCalledWith(room);
+
+    // 2. GAME_STARTED
+    controller.onGameStarted();
+
+    expect(
+        lobbyView.runStartCountdown
+    ).toHaveBeenCalledTimes(1);
+
+    // Проверяем callback countdown.
+    const countdownCallback =
+        lobbyView.runStartCountdown.mock.calls[0][0];
+
+    countdownCallback();
+
+    expect(
+        elements['game-screen'].classList.remove
+    ).toHaveBeenCalledWith('hidden');
+
+    // 3. GAME_STATE
+    const gameStateMessage = {
+        gameId: 'game_123',
+
+        game: {
+            status: 'running',
+
+            players: {
+                player_1: {
+                    id: 'player_1',
+                    nickname: 'Alice',
+                    score: 0,
+                    resources: 20,
+                    owned_node_ids: ['n2_0'],
+                },
+
+                player_2: {
+                    id: 'player_2',
+                    nickname: 'Bob',
+                    score: 0,
+                    resources: 20,
+                    owned_node_ids: ['n1_0'],
+                },
+            },
+
+            nodes: {
+                n1_0: {
+                    id: 'n1_0',
+                    owner_id: 'player_2',
+                    defence_level: 'K1',
+                    neighbor_ids: ['n2_0'],
+                    active_attack_player_id: null,
+                },
+
+                n2_0: {
+                    id: 'n2_0',
+                    owner_id: 'player_1',
+                    defence_level: 'K1',
+                    neighbor_ids: ['n1_0'],
+                    active_attack_player_id: null,
+                },
+            },
+
+            tasks: {},
+
+            remaining_time_seconds: 900,
+        },
+    };
+
+    controller.onGameState(gameStateMessage);
+
+    expect(
+        model.applyGameState
+    ).toHaveBeenCalledWith(
+        'game_123',
+        gameStateMessage.game
+    );
+
+    expect(model.state.status).toBe('running');
+    expect(
+        model.state.remainingTimeSeconds
+    ).toBe(900);
+
+    expect(
+        model.state.players.player_1.resources
+    ).toBe(20);
+
+    expect(
+        view.render
+    ).toHaveBeenCalledWith(
+        Object.values(model.state.nodes)
+    );
+
+    vi.unstubAllGlobals();
+});

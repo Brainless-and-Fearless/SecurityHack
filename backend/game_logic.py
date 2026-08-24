@@ -7,6 +7,7 @@ from models import (
     Node,
     Player,
     Task,
+    STARTING_RESOURCES,
 )
 
 
@@ -16,7 +17,6 @@ from models import (
 
 MATCH_DURATION_SECONDS = 15 * 60
 
-STARTING_RESOURCES = 20.0
 MAX_RESOURCES = 200.0
 
 RESOURCE_INCOME_PER_NODE = 0.5

@@ -1,6 +1,6 @@
 from models import Room
 from network_models import RoomPlayerState, RoomStateMessage
-
+from map_preview import build_room_map_preview
 
 def build_room_state(
     room: Room,
@@ -39,4 +39,5 @@ def build_room_state(
         room_code=room.id,
         you=current_player,
         players=players,
+        map_preview=build_room_map_preview(room),
     )
