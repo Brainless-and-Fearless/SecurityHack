@@ -9,11 +9,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from connection_manager import ConnectionManager
-from network_models import CreateRoomMessage, RoomCreatedMessage
+from task_manager import TaskManager
+from task_pool import TASK_POOL
 from redis_repository import (
     GameStateRepository,
     RoomRepository,
 )
+from game_logic import (
+    start_attack,
+    resolve_attack,
+)
+
+
 from room_id import generate_unique_room_id
 from room_service import RoomService
 from network_models import (
@@ -23,6 +30,10 @@ from network_models import (
     RoomCreatedMessage,
     RoomJoinedMessage,
     ErrorMessage,
+    AttackNodeMessage,
+    AnswerTaskMessage,
+    AttackStartedMessage,
+    AttackResolvedMessage,
 )
 
 def generate_player_id() -> str:
@@ -63,6 +74,8 @@ async def lifespan(app: FastAPI):
         game_service
     )
 
+    task_manager = TaskManager(TASK_POOL)
+
     connection_manager = ConnectionManager()
 
     app.state.redis = redis_client
@@ -70,6 +83,7 @@ async def lifespan(app: FastAPI):
     app.state.game_repository = game_repository
     app.state.game_service = game_service
     app.state.room_service = room_service
+    app.state.task_manager = task_manager
     app.state.connection_manager = connection_manager
 
     logger.info("SecurityHack API started")
@@ -153,7 +167,6 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.send_json(
             response.model_dump(mode="json")
         )
-
     try:
         while True:
             message = await websocket.receive_json()
@@ -320,6 +333,193 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 continue
 
+            if message_type == "ATTACK_NODE":
+                attack_message = AttackNodeMessage.model_validate(
+                    message
+                )
+
+                if current_room_id is None:
+                    await send_error(
+                        code="NOT_IN_ROOM",
+                        message="Player is not in a room.",
+                        request_id=attack_message.request_id,
+                    )
+                    continue
+
+                room = await websocket.app.state.room_repository.get_room(
+                    current_room_id
+                )
+
+                if room is None:
+                    await send_error(
+                        code="ROOM_NOT_FOUND",
+                        message="Room not found.",
+                        request_id=attack_message.request_id,
+                    )
+                    continue
+
+                if room.game_id is None:
+                    await send_error(
+                        code="GAME_NOT_STARTED",
+                        message="Game has not started.",
+                        request_id=attack_message.request_id,
+                    )
+                    continue
+
+                game = await game_repository.get_game(
+                    room.game_id
+                )
+
+                if game is None:
+                    await send_error(
+                        code="GAME_STATE_NOT_FOUND",
+                        message="Game state not found.",
+                        request_id=attack_message.request_id,
+                    )
+                    continue
+
+                try:
+                    task = start_attack(
+                        game,
+                        player_id,
+                        attack_message.node_id,
+                        task_manager=websocket.app.state.task_manager,
+                    )
+                except ValueError as exc:
+                    await send_error(
+                        code=str(exc),
+                        message=str(exc),
+                        request_id=attack_message.request_id,
+                    )
+                    continue
+
+                await game_repository.save_game(
+                    room.game_id,
+                    game,
+                )
+
+                response = AttackStartedMessage(
+                    type="ATTACK_STARTED",
+                    request_id=attack_message.request_id,
+                    node_id=task.node_id,
+                    task=task,
+                )
+
+                await websocket.send_json(
+                    response.model_dump(mode="json")
+                )
+
+                continue
+
+
+            if message_type == "ANSWER_TASK":
+                answer_message = AnswerTaskMessage.model_validate(
+                    message
+                )
+
+                if current_room_id is None:
+                    await send_error(
+                        code="NOT_IN_ROOM",
+                        message="Player is not in a room.",
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                room = await websocket.app.state.room_repository.get_room(
+                    current_room_id
+                )
+
+                if room is None:
+                    await send_error(
+                        code="ROOM_NOT_FOUND",
+                        message="Room not found.",
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                if room.game_id is None:
+                    await send_error(
+                        code="GAME_NOT_STARTED",
+                        message="Game has not started.",
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                game = await game_repository.get_game(
+                    room.game_id
+                )
+
+                if game is None:
+                    await send_error(
+                        code="GAME_STATE_NOT_FOUND",
+                        message="Game state not found.",
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                task_manager = websocket.app.state.task_manager
+
+                try:
+                    task = task_manager.get_task(
+                        answer_message.task_id
+                    )
+
+                    node_id = task.node_id
+
+                    resolution = task_manager.check_answer(
+                        answer_message.task_id,
+                        player_id,
+                        answer_message.answer,
+                    )
+
+                    score_change = resolve_attack(
+                        game,
+                        player_id,
+                        answer_message.task_id,
+                        resolution,
+                        task_manager,
+                    )
+
+                except ValueError as exc:
+                    await send_error(
+                        code=str(exc),
+                        message=str(exc),
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                await game_repository.save_game(
+                    room.game_id,
+                    game,
+                )
+
+                response = AttackResolvedMessage(
+                    type="ATTACK_RESOLVED",
+                    request_id=answer_message.request_id,
+                    node_id=node_id,
+                    success=resolution.success,
+                    score_change=score_change,
+                    theory=resolution.theory,
+                    explanation=resolution.explanation,
+                )
+
+                await websocket.send_json(
+                    response.model_dump(mode="json")
+                )
+
+                await connection_manager.broadcast_to_room(
+                    room.id,
+                    {
+                        "type": "GAME_STATE",
+                        "game_id": room.game_id,
+                        "game": game.model_dump(
+                            mode="json"
+                        ),
+                    },
+                )
+
+                continue
+            
             # ---------------------------------------------------------
             # UNKNOWN MESSAGE
             # ---------------------------------------------------------

@@ -86,13 +86,28 @@ class Node(BaseModel):
 
 class Task(BaseModel):
     id: str
-
     node_id: str
     player_id: str
-
     defence_level: DefenceLevel
-
+    template_id: str | None = None
     question: str
+
+
+class TaskTemplate(BaseModel):
+    id: str
+    difficulty: DefenceLevel
+    category: str
+    question: str
+    answer: str
+    explanation: str
+    theory: str
+
+
+class TaskResolution(BaseModel):
+    success: bool
+    score_change: int = 0
+    theory: str | None = None
+    explanation: str | None = None
 
 
 class GameState(BaseModel):

@@ -1,6 +1,15 @@
 import pytest
 
-from models import DefenceLevel, GameStatus, Node, Player
+from task_manager import TaskManager
+from models import (
+    DefenceLevel,
+    GameStatus,
+    Node,
+    Player,
+    Task,
+    TaskResolution,
+    TaskTemplate,
+)
 from game_logic import (
     MAX_RESOURCES,
     RESOURCE_INCOME_PER_NODE,
@@ -12,6 +21,44 @@ from game_logic import (
     upgrade_node,
     tick_game,
 )
+
+
+# ---------------------------------------------------------------------------
+# Test helpers
+# ---------------------------------------------------------------------------
+
+def create_test_task_manager():
+    return TaskManager(
+        [
+            TaskTemplate(
+                id="test_k1",
+                difficulty=DefenceLevel.K1,
+                category="TEST",
+                question="Question K1",
+                answer="answer",
+                explanation="Explanation K1",
+                theory="Theory K1",
+            ),
+            TaskTemplate(
+                id="test_k2",
+                difficulty=DefenceLevel.K2,
+                category="TEST",
+                question="Question K2",
+                answer="answer",
+                explanation="Explanation K2",
+                theory="Theory K2",
+            ),
+            TaskTemplate(
+                id="test_k3",
+                difficulty=DefenceLevel.K3,
+                category="TEST",
+                question="Question K3",
+                answer="answer",
+                explanation="Explanation K3",
+                theory="Theory K3",
+            ),
+        ]
+    )
 
 
 def create_test_game():
@@ -80,6 +127,27 @@ def prepare_two_player_game():
     return game
 
 
+def start_test_attack(
+    game,
+    player_id,
+    node_id,
+    task_manager=None,
+):
+    """
+    Start an attack using the current TaskManager-based contract.
+    """
+
+    if task_manager is None:
+        task_manager = create_test_task_manager()
+
+    return start_attack(
+        game,
+        player_id,
+        node_id,
+        task_manager=task_manager,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Game creation
 # ---------------------------------------------------------------------------
@@ -125,16 +193,20 @@ def test_player_can_attack_neighbor():
 
     neighbor_node = player_1_node.neighbor_ids[0]
 
-    task = start_attack(
+    task = start_test_attack(
         game,
         "player_1",
         neighbor_node,
-        "task_1",
-        "2 + 2 = ?",
     )
 
     assert task.node_id == neighbor_node
     assert task.player_id == "player_1"
+    assert task.defence_level == game.nodes[neighbor_node].defence_level
+    assert task.template_id == "test_k1"
+    assert task.question == "Question K1"
+
+    assert game.nodes[neighbor_node].active_attack_player_id == "player_1"
+    assert task.id in game.tasks
 
 
 def test_player_cannot_attack_own_node():
@@ -144,19 +216,15 @@ def test_player_cannot_attack_own_node():
 
     own_node_id = player_1.owned_node_ids[0]
 
-    try:
-        start_attack(
+    with pytest.raises(
+        ValueError,
+        match="OWN_NODE",
+    ):
+        start_test_attack(
             game,
             "player_1",
             own_node_id,
-            "task_1",
-            "Question",
         )
-
-        assert False, "Expected attack to fail"
-
-    except ValueError as error:
-        assert str(error) == "OWN_NODE"
 
 
 def test_player_cannot_attack_non_neighbor():
@@ -164,19 +232,16 @@ def test_player_cannot_attack_non_neighbor():
 
     # Player 1 starts at A.
     # C is not adjacent to A.
-    try:
-        start_attack(
+
+    with pytest.raises(
+        ValueError,
+        match="NODE_NOT_NEIGHBOR",
+    ):
+        start_test_attack(
             game,
             "player_1",
             "C",
-            "task_1",
-            "Question",
         )
-
-        assert False, "Expected attack to fail"
-
-    except ValueError as error:
-        assert str(error) == "NODE_NOT_NEIGHBOR"
 
 
 def test_node_cannot_have_two_simultaneous_attacks():
@@ -187,26 +252,21 @@ def test_node_cannot_have_two_simultaneous_attacks():
 
     start_game(game)
 
-    start_attack(
+    start_test_attack(
         game,
         "player_1",
         "C",
-        "task_1",
-        "Question",
     )
 
-    try:
-        start_attack(
+    with pytest.raises(
+        ValueError,
+        match="NODE_BUSY",
+    ):
+        start_test_attack(
             game,
             "player_2",
             "C",
-            "task_2",
-            "Question",
         )
-    except ValueError as error:
-        assert str(error) == "NODE_BUSY"
-    else:
-        assert False, "Second attack should have been rejected"
 
 
 # ---------------------------------------------------------------------------
@@ -216,20 +276,26 @@ def test_node_cannot_have_two_simultaneous_attacks():
 def test_successful_k1_capture_gives_5_points():
     game = prepare_two_player_game()
 
-    # Player 1 attacks B.
-    start_attack(
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
         game,
         "player_1",
         "B",
-        "task_1",
-        "Question",
+        task_manager,
+    )
+
+    resolution = TaskResolution(
+        success=True,
+        explanation="Explanation",
     )
 
     score_change = resolve_attack(
         game,
         "player_1",
-        "task_1",
-        True,
+        task.id,
+        resolution,
+        task_manager,
     )
 
     assert score_change == 5
@@ -238,28 +304,39 @@ def test_successful_k1_capture_gives_5_points():
     assert game.nodes["B"].owner_id == "player_1"
     assert game.nodes["B"].defence_level == DefenceLevel.K1
 
+    assert game.nodes["B"].active_attack_player_id is None
+    assert game.tasks == {}
+
 
 def test_successful_k2_capture_gives_10_points_and_resets_defence():
     game = prepare_two_player_game()
 
-    # Give player 2 ownership of B.
-    game.nodes["B"].owner_id = "player_2"
 
     game.nodes["B"].defence_level = DefenceLevel.K2
 
-    start_attack(
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
         game,
         "player_1",
         "B",
-        "task_1",
-        "Question",
+        task_manager,
+    )
+
+    assert task.defence_level == DefenceLevel.K2
+    assert task.template_id == "test_k2"
+
+    resolution = TaskResolution(
+        success=True,
+        explanation="Explanation",
     )
 
     score_change = resolve_attack(
         game,
         "player_1",
-        "task_1",
-        True,
+        task.id,
+        resolution,
+        task_manager,
     )
 
     assert score_change == 10
@@ -271,6 +348,9 @@ def test_successful_k2_capture_gives_10_points_and_resets_defence():
     assert "B" not in game.players["player_2"].owned_node_ids
     assert "B" in game.players["player_1"].owned_node_ids
 
+    assert game.nodes["B"].active_attack_player_id is None
+    assert game.tasks == {}
+
 
 def test_successful_k3_capture_gives_15_points():
     game = prepare_two_player_game()
@@ -280,19 +360,29 @@ def test_successful_k3_capture_gives_15_points():
 
     game.nodes["B"].defence_level = DefenceLevel.K3
 
-    start_attack(
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
         game,
         "player_1",
         "B",
-        "task_1",
-        "Question",
+        task_manager,
+    )
+
+    assert task.defence_level == DefenceLevel.K3
+    assert task.template_id == "test_k3"
+
+    resolution = TaskResolution(
+        success=True,
+        explanation="Explanation",
     )
 
     score_change = resolve_attack(
         game,
         "player_1",
-        "task_1",
-        True,
+        task.id,
+        resolution,
+        task_manager,
     )
 
     assert score_change == 15
@@ -300,6 +390,9 @@ def test_successful_k3_capture_gives_15_points():
 
     assert game.nodes["B"].owner_id == "player_1"
     assert game.nodes["B"].defence_level == DefenceLevel.K1
+
+    assert game.nodes["B"].active_attack_player_id is None
+    assert game.tasks == {}
 
 
 # ---------------------------------------------------------------------------
@@ -309,19 +402,26 @@ def test_successful_k3_capture_gives_15_points():
 def test_failed_k1_attack_removes_3_points():
     game = prepare_two_player_game()
 
-    start_attack(
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
         game,
         "player_1",
         "B",
-        "task_1",
-        "Question",
+        task_manager,
+    )
+
+    resolution = TaskResolution(
+        success=False,
+        theory="Theory",
     )
 
     score_change = resolve_attack(
         game,
         "player_1",
-        "task_1",
-        False,
+        task.id,
+        resolution,
+        task_manager,
     )
 
     assert score_change == -3
@@ -330,25 +430,38 @@ def test_failed_k1_attack_removes_3_points():
     assert game.nodes["B"].owner_id == "player_2"
     assert game.nodes["B"].defence_level == DefenceLevel.K1
 
+    assert game.nodes["B"].active_attack_player_id is None
+    assert game.tasks == {}
+
 
 def test_failed_k3_attack_removes_9_points_without_changing_owner():
     game = prepare_two_player_game()
 
     game.nodes["B"].defence_level = DefenceLevel.K3
 
-    start_attack(
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
         game,
         "player_1",
         "B",
-        "task_1",
-        "Question",
+        task_manager,
+    )
+
+    assert task.defence_level == DefenceLevel.K3
+    assert task.template_id == "test_k3"
+
+    resolution = TaskResolution(
+        success=False,
+        theory="Theory",
     )
 
     score_change = resolve_attack(
         game,
         "player_1",
-        "task_1",
-        False,
+        task.id,
+        resolution,
+        task_manager,
     )
 
     assert score_change == -9
@@ -356,6 +469,9 @@ def test_failed_k3_attack_removes_9_points_without_changing_owner():
 
     assert game.nodes["B"].owner_id == "player_2"
     assert game.nodes["B"].defence_level == DefenceLevel.K3
+
+    assert game.nodes["B"].active_attack_player_id is None
+    assert game.tasks == {}
 
 
 # ---------------------------------------------------------------------------
@@ -417,16 +533,27 @@ def test_player_cannot_upgrade_k3():
 
     node_id = player.owned_node_ids[0]
 
-    upgrade_node(game, "player_1", node_id)
-    upgrade_node(game, "player_1", node_id)
+    upgrade_node(
+        game,
+        "player_1",
+        node_id,
+    )
 
-    try:
-        upgrade_node(game, "player_1", node_id)
+    upgrade_node(
+        game,
+        "player_1",
+        node_id,
+    )
 
-        assert False, "Expected upgrade to fail"
-
-    except ValueError as error:
-        assert str(error) == "MAX_DEFENCE_REACHED"
+    with pytest.raises(
+        ValueError,
+        match="MAX_DEFENCE_REACHED",
+    ):
+        upgrade_node(
+            game,
+            "player_1",
+            node_id,
+        )
 
 
 def test_player_cannot_upgrade_node_without_resources():
@@ -437,17 +564,15 @@ def test_player_cannot_upgrade_node_without_resources():
 
     player.resources = 0
 
-    try:
+    with pytest.raises(
+        ValueError,
+        match="INSUFFICIENT_RESOURCES",
+    ):
         upgrade_node(
             game,
             "player_1",
             node_id,
         )
-
-        assert False, "Expected upgrade to fail"
-
-    except ValueError as error:
-        assert str(error) == "INSUFFICIENT_RESOURCES"
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +587,10 @@ def test_player_receives_resource_income_each_second():
 
     tick_game(game)
 
-    assert player.resources == starting_resources + RESOURCE_INCOME_PER_NODE
+    assert (
+        player.resources
+        == starting_resources + RESOURCE_INCOME_PER_NODE
+    )
 
 
 def test_resource_income_is_received_for_each_owned_node():
@@ -478,8 +606,10 @@ def test_resource_income_is_received_for_each_owned_node():
 
     tick_game(game)
 
-    assert player.resources == (
-        starting_resources + RESOURCE_INCOME_PER_NODE * 2
+    assert (
+        player.resources
+        == starting_resources
+        + RESOURCE_INCOME_PER_NODE * 2
     )
 
 
@@ -542,6 +672,10 @@ def test_game_can_end_in_a_draw():
     assert game.status == GameStatus.FINISHED
 
 
+# ---------------------------------------------------------------------------
+# Explicit starting nodes
+# ---------------------------------------------------------------------------
+
 def test_add_player_can_use_explicit_start_node():
     game = create_game(
         [
@@ -559,7 +693,7 @@ def test_add_player_can_use_explicit_start_node():
 
     assert player.owned_node_ids == ["B"]
     assert game.nodes["B"].owner_id == "player_1"
-    assert game.nodes["A"].owner_id is None    
+    assert game.nodes["A"].owner_id is None
 
 
 def test_add_player_rejects_occupied_start_node():
@@ -582,7 +716,7 @@ def test_add_player_rejects_occupied_start_node():
             player_id="player_2",
             nickname="Bob",
             start_node_id="A",
-        )    
+        )
 
 
 def test_add_player_rejects_unknown_start_node():
@@ -602,7 +736,8 @@ def test_add_player_rejects_unknown_start_node():
             player_id="player_1",
             nickname="Alice",
             start_node_id="Z",
-        )        
+        )
+
 
 def test_player_default_resources_are_20():
     player = Player(
@@ -610,4 +745,152 @@ def test_player_default_resources_are_20():
         nickname="Alice",
     )
 
-    assert player.resources == 20.0        
+    assert player.resources == 20.0
+
+
+# ---------------------------------------------------------------------------
+# TaskManager integration
+# ---------------------------------------------------------------------------
+
+def test_start_attack_uses_injected_task_manager():
+    game = prepare_two_player_game()
+
+    created_task = Task(
+        id="task_1",
+        node_id="B",
+        player_id="player_1",
+        defence_level=DefenceLevel.K1,
+        template_id="encryption_k1_001",
+        question="Question",
+    )
+
+    class FakeTaskManager:
+        def __init__(self):
+            self.calls = []
+
+        def create_task(
+            self,
+            node_id,
+            player_id,
+            defence_level,
+        ):
+            self.calls.append(
+                (
+                    node_id,
+                    player_id,
+                    defence_level,
+                )
+            )
+            return created_task
+
+    task_manager = FakeTaskManager()
+
+    task = start_attack(
+        game,
+        "player_1",
+        "B",
+        task_manager=task_manager,
+    )
+
+    assert task is created_task
+
+    assert task_manager.calls == [
+        (
+            "B",
+            "player_1",
+            DefenceLevel.K1,
+        )
+    ]
+
+
+def test_resolve_attack_uses_success_from_task_resolution():
+    game = prepare_two_player_game()
+
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
+        game,
+        "player_1",
+        "B",
+        task_manager,
+    )
+
+    resolution = TaskResolution(
+        success=True,
+        explanation="Explanation",
+    )
+
+    score_change = resolve_attack(
+        game,
+        "player_1",
+        task.id,
+        resolution,
+        task_manager,
+    )
+
+    assert score_change == 5
+    assert game.players["player_1"].score == 5
+    assert game.nodes["B"].owner_id == "player_1"    
+
+
+def test_resolve_attack_uses_failure_from_task_resolution():
+    game = prepare_two_player_game()
+
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
+        game,
+        "player_1",
+        "B",
+        task_manager,
+    )
+
+    resolution = TaskResolution(
+        success=False,
+        theory="Theory",
+    )
+
+    score_change = resolve_attack(
+        game,
+        "player_1",
+        task.id,
+        resolution,
+        task_manager,
+    )
+
+    assert score_change == -3
+    assert game.players["player_1"].score == -3
+    assert game.nodes["B"].owner_id == "player_2"    
+
+
+def test_resolve_attack_removes_task_from_task_manager():
+    game = prepare_two_player_game()
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
+        game,
+        "player_1",
+        "B",
+        task_manager,
+    )
+
+    resolution = TaskResolution(
+        success=True,
+        explanation="Explanation",
+    )
+
+    resolve_attack(
+        game,
+        "player_1",
+        task.id,
+        resolution,
+        task_manager=task_manager,
+    )
+
+    assert task.id not in game.tasks
+
+    with pytest.raises(
+        ValueError,
+        match="TASK_NOT_FOUND",
+    ):
+        task_manager.get_task(task.id)    

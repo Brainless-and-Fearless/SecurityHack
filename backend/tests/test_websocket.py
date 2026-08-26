@@ -1,6 +1,41 @@
 from fastapi.testclient import TestClient
 from network_models import RoomStateMessage
 from main import app
+from task_manager import TaskManager
+from models import DefenceLevel, TaskTemplate
+
+def create_test_websocket_task_manager():
+    return TaskManager(
+        [
+            TaskTemplate(
+                id="test_k1",
+                difficulty=DefenceLevel.K1,
+                category="TEST",
+                question="Question K1",
+                answer="answer",
+                explanation="Explanation K1",
+                theory="Theory K1",
+            ),
+            TaskTemplate(
+                id="test_k2",
+                difficulty=DefenceLevel.K2,
+                category="TEST",
+                question="Question K2",
+                answer="answer",
+                explanation="Explanation K2",
+                theory="Theory K2",
+            ),
+            TaskTemplate(
+                id="test_k3",
+                difficulty=DefenceLevel.K3,
+                category="TEST",
+                question="Question K3",
+                answer="answer",
+                explanation="Explanation K3",
+                theory="Theory K3",
+            ),
+        ]
+    )
 
 
 def test_create_room_registers_player_connection():
@@ -358,3 +393,322 @@ def test_host_can_start_game_and_all_players_receive_game_state():
                     assert node["defence_level"] == "K1"
 
                     
+def test_player_can_start_attack_over_websocket():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            host_ws.send_json(
+                {
+                    "type": "CREATE_ROOM",
+                    "request_id": "req_create",
+                    "nickname": "Alice",
+                }
+            )
+
+            host_room_state = host_ws.receive_json()
+            host_created = host_ws.receive_json()
+
+            room_id = host_created["room_id"]
+
+            with client.websocket_connect("/ws") as player_ws:
+                player_ws.send_json(
+                    {
+                        "type": "JOIN_ROOM",
+                        "request_id": "req_join",
+                        "room_id": room_id,
+                        "nickname": "Bob",
+                    }
+                )
+
+                player_ws.receive_json()  # ROOM_STATE
+                player_ws.receive_json()  # ROOM_JOINED
+                host_ws.receive_json()    # updated ROOM_STATE
+
+                host_ws.send_json(
+                    {
+                        "type": "START_GAME",
+                        "request_id": "req_start",
+                    }
+                )
+
+                host_ws.receive_json()    # GAME_STARTED
+                host_game_state = host_ws.receive_json()
+
+                player_ws.receive_json()  # GAME_STARTED
+                player_ws.receive_json()  # GAME_STATE
+
+                game = host_game_state["game"]
+
+                host_player_id = host_created["player_id"]
+                host_player = game["players"][host_player_id]
+
+                owned_node_id = host_player["owned_node_ids"][0]
+                owned_node = game["nodes"][owned_node_id]
+
+                target_node_id = next(
+                    node_id
+                    for node_id in owned_node["neighbor_ids"]
+                    if game["nodes"][node_id]["owner_id"]
+                    != host_player_id
+                )
+
+                host_ws.send_json(
+                    {
+                        "type": "ATTACK_NODE",
+                        "request_id": "req_attack",
+                        "node_id": target_node_id,
+                    }
+                )
+
+                response = host_ws.receive_json()
+
+                assert response["type"] == "ATTACK_STARTED"
+                assert response["request_id"] == "req_attack"
+                assert response["node_id"] == target_node_id
+
+                task = response["task"]
+
+                assert task["node_id"] == target_node_id
+                assert task["player_id"] == host_player_id
+                assert task["question"]
+                assert task["defence_level"] == (
+                    game["nodes"][target_node_id]["defence_level"]
+                )
+
+
+def test_attack_node_over_websocket_rejects_non_neighbor():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            host_ws.send_json(
+                {
+                    "type": "CREATE_ROOM",
+                    "request_id": "req_create",
+                    "nickname": "Alice",
+                }
+            )
+
+            host_ws.receive_json()
+            host_created = host_ws.receive_json()
+
+            room_id = host_created["room_id"]
+
+            with client.websocket_connect("/ws") as player_ws:
+                player_ws.send_json(
+                    {
+                        "type": "JOIN_ROOM",
+                        "request_id": "req_join",
+                        "room_id": room_id,
+                        "nickname": "Bob",
+                    }
+                )
+
+                player_ws.receive_json()
+                player_ws.receive_json()
+                host_ws.receive_json()
+
+                host_ws.send_json(
+                    {
+                        "type": "START_GAME",
+                        "request_id": "req_start",
+                    }
+                )
+
+                host_ws.receive_json()
+                host_game_state = host_ws.receive_json()
+
+                player_ws.receive_json()
+                player_ws.receive_json()
+
+                game = host_game_state["game"]
+                host_player_id = host_created["player_id"]
+
+                owned_node_id = game["players"][
+                    host_player_id
+                ]["owned_node_ids"][0]
+
+                owned_node = game["nodes"][owned_node_id]
+
+                non_neighbor_node_id = next(
+                    node_id
+                    for node_id, node in game["nodes"].items()
+                    if (
+                        node_id != owned_node_id
+                        and node_id
+                        not in owned_node["neighbor_ids"]
+                    )
+                )
+
+                host_ws.send_json(
+                    {
+                        "type": "ATTACK_NODE",
+                        "request_id": "req_attack",
+                        "node_id": non_neighbor_node_id,
+                    }
+                )
+
+                response = host_ws.receive_json()
+
+                assert response["type"] == "ERROR"
+                assert response["request_id"] == "req_attack"
+                assert response["code"] == "NODE_NOT_NEIGHBOR"                
+
+def test_answer_task_over_websocket_resolves_attack():
+    with TestClient(app) as client:
+        original_task_manager = app.state.task_manager
+
+        app.state.task_manager = (
+            create_test_websocket_task_manager()
+        )
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                host_ws.send_json(
+                    {
+                        "type": "CREATE_ROOM",
+                        "request_id": "req_create",
+                        "nickname": "Alice",
+                    }
+                )
+
+                host_ws.receive_json()
+                host_created = host_ws.receive_json()
+
+                room_id = host_created["room_id"]
+                host_player_id = host_created["player_id"]
+
+                with client.websocket_connect("/ws") as player_ws:
+                    player_ws.send_json(
+                        {
+                            "type": "JOIN_ROOM",
+                            "request_id": "req_join",
+                            "room_id": room_id,
+                            "nickname": "Bob",
+                        }
+                    )
+
+                    player_ws.receive_json()
+                    player_ws.receive_json()
+                    host_ws.receive_json()
+
+                    host_ws.send_json(
+                        {
+                            "type": "START_GAME",
+                            "request_id": "req_start",
+                        }
+                    )
+
+                    host_ws.receive_json()
+                    host_game_state = host_ws.receive_json()
+
+                    player_ws.receive_json()
+                    player_ws.receive_json()
+
+                    game = host_game_state["game"]
+
+                    owned_node_id = game["players"][
+                        host_player_id
+                    ]["owned_node_ids"][0]
+
+                    owned_node = game["nodes"][
+                        owned_node_id
+                    ]
+
+                    target_node_id = next(
+                        node_id
+                        for node_id in owned_node["neighbor_ids"]
+                        if game["nodes"][node_id]["owner_id"]
+                        != host_player_id
+                    )
+
+                    host_ws.send_json(
+                        {
+                            "type": "ATTACK_NODE",
+                            "request_id": "req_attack",
+                            "node_id": target_node_id,
+                        }
+                    )
+
+                    attack_started = host_ws.receive_json()
+
+                    assert (
+                        attack_started["type"]
+                        == "ATTACK_STARTED"
+                    )
+
+                    assert (
+                        attack_started["request_id"]
+                        == "req_attack"
+                    )
+
+                    assert (
+                        attack_started["node_id"]
+                        == target_node_id
+                    )
+
+                    task = attack_started["task"]
+
+                    assert task["node_id"] == target_node_id
+                    assert task["player_id"] == host_player_id
+                    assert task["question"] == "Question K1"
+                    assert task["template_id"] == "test_k1"
+
+                    host_ws.send_json(
+                        {
+                            "type": "ANSWER_TASK",
+                            "request_id": "req_answer",
+                            "task_id": task["id"],
+                            "answer": "answer",
+                        }
+                    )
+
+                    response = host_ws.receive_json()
+
+                    assert (
+                        response["type"]
+                        == "ATTACK_RESOLVED"
+                    )
+
+                    assert (
+                        response["request_id"]
+                        == "req_answer"
+                    )
+
+                    assert (
+                        response["node_id"]
+                        == target_node_id
+                    )
+
+                    assert response["success"] is True
+                    assert response["score_change"] == 5
+                    assert response["theory"] is None
+                    assert (
+                        response["explanation"]
+                        == "Explanation K1"
+                    )
+
+                    game_state = host_ws.receive_json()
+
+                    assert (
+                        game_state["type"]
+                        == "GAME_STATE"
+                    )
+
+                    updated_game = game_state["game"]
+
+                    assert (
+                        updated_game["nodes"][
+                            target_node_id
+                        ]["owner_id"]
+                        == host_player_id
+                    )
+
+                    assert (
+                        updated_game["nodes"][
+                            target_node_id
+                        ]["defence_level"]
+                        == "K1"
+                    )
+
+                    assert task["id"] not in updated_game["tasks"]
+
+        finally:
+            app.state.task_manager = original_task_manager

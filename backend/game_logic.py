@@ -7,6 +7,7 @@ from models import (
     Node,
     Player,
     Task,
+    TaskResolution,
     STARTING_RESOURCES,
 )
 
@@ -213,8 +214,7 @@ def start_attack(
     game: GameState,
     player_id: str,
     node_id: str,
-    task_id: str,
-    question: str,
+    task_manager,
 ) -> Task:
     """
     Start an attack and create a task.
@@ -234,12 +234,10 @@ def start_attack(
 
     node = game.nodes[node_id]
 
-    task = Task(
-        id=task_id,
+    task = task_manager.create_task(
         node_id=node.id,
         player_id=player_id,
         defence_level=node.defence_level,
-        question=question,
     )
 
     game.tasks[task.id] = task
@@ -252,7 +250,8 @@ def resolve_attack(
     game: GameState,
     player_id: str,
     task_id: str,
-    success: bool,
+    resolution: TaskResolution,
+    task_manager,
 ) -> int:
     """
     Resolve an active attack.
@@ -280,7 +279,7 @@ def resolve_attack(
 
     defence_value = defence_level_value(task.defence_level)
 
-    if success:
+    if resolution.success:
         score_change = SUCCESS_SCORE_MULTIPLIER * defence_value
 
         previous_owner_id = node.owner_id
@@ -306,6 +305,8 @@ def resolve_attack(
 
     node.active_attack_player_id = None
     del game.tasks[task_id]
+
+    task_manager.remove_task(task.id)
 
     return score_change
 

@@ -152,6 +152,8 @@ class AttackResolvedMessage(BaseModel):
     node_id: str
     success: bool
     score_change: int
+    theory: str | None = None
+    explanation: str | None = None
 
 
 class GameFinishedMessage(BaseModel):
