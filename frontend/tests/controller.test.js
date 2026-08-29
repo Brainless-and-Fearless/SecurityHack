@@ -765,3 +765,299 @@ test('handles the complete room-to-game flow', () => {
 
     vi.unstubAllGlobals();
 });
+
+
+function createAttackController(elements = {}) {
+    const model = {
+        state: {
+            players: {
+                player_1: {
+                    id: 'player_1',
+                    nickname: 'Alice',
+                    score: 0,
+                    resources: 20,
+                    owned_node_ids: ['node_1'],
+                },
+            },
+            nodes: {
+                node_1: {
+                    id: 'node_1',
+                    owner_id: 'player_1',
+                    defence_level: 'K1',
+                    neighbor_ids: ['node_2'],
+                },
+                node_2: {
+                    id: 'node_2',
+                    owner_id: 'player_2',
+                    defence_level: 'K1',
+                    neighbor_ids: ['node_1'],
+                },
+            },
+            tasks: {},
+            remainingTimeSeconds: 900,
+        },
+        applyGameState: vi.fn(),
+    };
+
+    const view = {
+        render: vi.fn(),
+        getNodeAtPoint: vi.fn(),
+    };
+
+    const lobbyView = {
+        modeCreateBtn: {
+            addEventListener: vi.fn(),
+        },
+        modeJoinBtn: {
+            addEventListener: vi.fn(),
+        },
+        entrySubmit: {
+            addEventListener: vi.fn(),
+        },
+        copyBtn: {
+            addEventListener: vi.fn(),
+        },
+        leaveBtn: {
+            addEventListener: vi.fn(),
+        },
+        startBtn: {
+            addEventListener: vi.fn(),
+        },
+        setEntryMode: vi.fn(),
+        startAmbientLoop: vi.fn(),
+    };
+
+    const network = {
+        attackNode: vi.fn(),
+        answerTask: vi.fn(),
+        startGame: vi.fn(),
+    };
+
+    vi.stubGlobal('document', {
+        getElementById: vi.fn(
+            (id) => (
+                elements[id] ?? {
+                    addEventListener: vi.fn(),
+                    textContent: '',
+                    value: '',
+                    classList: {
+                        add: vi.fn(),
+                        remove: vi.fn(),
+                        toggle: vi.fn(),
+                    },
+                }
+            )
+        ),
+    });
+
+    const controller = new Controller(
+        model,
+        view,
+        lobbyView,
+        network,
+    );
+
+    controller.room = {
+        roomCode: 'ABC234',
+        you: {
+            id: 'player_1',
+            name: 'Alice',
+            isHost: true,
+        },
+    };
+
+    return {
+        controller,
+        model,
+        view,
+        network,
+        lobbyView,
+        elements,
+    };
+}
+
+test('clicking a node sends ATTACK_NODE through Network', () => {
+    const canvas = {
+        addEventListener: vi.fn(),
+    };
+
+    const {
+        controller,
+        view,
+        network,
+    } = createAttackController({
+        'game-canvas': canvas,
+    });
+
+    view.getNodeAtPoint.mockReturnValue(
+        'node_2'
+    );
+
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    expect(
+        network.attackNode
+    ).toHaveBeenCalledTimes(1);
+
+    expect(
+        network.attackNode
+    ).toHaveBeenCalledWith('node_2');
+});
+
+test('ATTACK_STARTED opens task modal with question', () => {
+    const elements = {
+        'task-modal': {
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+                toggle: vi.fn(),
+            },
+        },
+        'task-title': {
+            textContent: '',
+        },
+        'task-desc': {
+            textContent: '',
+        },
+        'task-answer': {
+            value: '',
+            focus: vi.fn(),
+        },
+        'game-screen': {
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+                toggle: vi.fn(),
+            },
+        },
+    };
+
+    const {
+        controller,
+    } = createAttackController(
+        elements
+    );
+
+    const task = {
+        id: 'task_123',
+        node_id: 'node_2',
+        player_id: 'player_1',
+        defence_level: 'K1',
+        template_id: 'test_k1',
+        question: 'Какой ответ правильный?',
+    };
+
+    controller.onAttackStarted({
+        type: 'ATTACK_STARTED',
+        request_id: 'req_attack',
+        node_id: 'node_2',
+        task,
+    });
+
+    expect(
+        elements['task-modal']
+            .classList.remove
+    ).toHaveBeenCalledWith(
+        'hidden'
+    );
+
+    expect(
+        elements['task-desc'].textContent
+    ).toBe(
+        'Какой ответ правильный?'
+    );
+
+    expect(
+        elements['task-answer'].focus
+    ).toHaveBeenCalled();
+});
+
+
+test('submitting task answer sends ANSWER_TASK', () => {
+    const elements = {
+        'task-modal': {
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+                toggle: vi.fn(),
+            },
+        },
+        'task-answer': {
+            value: 'Paris',
+            focus: vi.fn(),
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+            },
+        },
+    };
+
+    const {
+        controller,
+        network,
+    } = createAttackController(
+        elements
+    );
+
+    controller.activeTask = {
+        id: 'task_123',
+        question: 'Столица Франции?',
+    };
+
+    controller.submitTaskAnswer();
+
+    expect(
+        network.answerTask
+    ).toHaveBeenCalledTimes(1);
+
+    expect(
+        network.answerTask
+    ).toHaveBeenCalledWith(
+        'task_123',
+        'Paris',
+    );
+});
+
+
+test('failed attack displays task theory', () => {
+    const elements = {
+        'task-modal': {
+            classList: {
+                add: vi.fn(),
+                remove: vi.fn(),
+                toggle: vi.fn(),
+            },
+        },
+        'task-title': {
+            textContent: '',
+        },
+        'task-desc': {
+            textContent: '',
+        },
+    };
+
+    const {
+        controller,
+    } = createAttackController(
+        elements
+    );
+
+    controller.onAttackResolved({
+        type: 'ATTACK_RESOLVED',
+        request_id: 'req_answer',
+        node_id: 'node_2',
+        success: false,
+        score_change: -3,
+        theory: 'Криптографическая теория',
+        explanation: null,
+    });
+
+    expect(
+        elements['task-desc'].textContent
+    ).toBe(
+        'Криптографическая теория'
+    );
+});

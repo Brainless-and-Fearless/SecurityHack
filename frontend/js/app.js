@@ -23,6 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         onGameState: (gameState) =>
             controller.onGameState(gameState),
+
+        onAttackStarted: (message) =>
+            controller.onAttackStarted(message),
+
+        onAttackResolved: (message) =>
+            controller.onAttackResolved(message),
     };
 
     const network = new Network(handlers);

@@ -69,13 +69,23 @@ export class View {
 
     render(nodes) {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this._renderedNodePositions = new Map();
 
         const centerX = this.canvas.width / 2;
         const centerY = this.canvas.height / 2;
 
+        const scale = Math.min(
+            this.canvas.width,
+            this.canvas.height
+        ) * 0.42;
+
         nodes.forEach(node => {
-            const x = node.id === 0 ? centerX : centerX + node.x;
-            const y = node.id === 0 ? centerY : centerY + node.y;
+            const x =
+                centerX + node.x * scale;
+
+            const y =
+                centerY + node.y * scale;
+            this._renderedNodePositions.set(node.id, { x, y } );
             const ownerId = this.getOwner(node);
             const defenceLevel = this.getDefenceLevel(node);
             const ownerColor = this.getOwnerColor(ownerId);
@@ -125,4 +135,73 @@ export class View {
             requestAnimationFrame(() => this.render(nodes));
         }
     }
+
+    getNodeAtPoint(nodes, clientX, clientY) {
+        if (!this.canvas) {
+            return null;
+        }
+
+        const rect = this.canvas.getBoundingClientRect();
+
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        const centerX = this.canvas.width / 2;
+        const centerY = this.canvas.height / 2;
+
+        const clickableRadius = 22;
+
+        for (const node of nodes) {
+            let nodeX;
+            let nodeY;
+
+            if (
+                typeof this._renderedNodePositions === 'object' &&
+                this._renderedNodePositions !== null
+            ) {
+                const rendered =
+                    this._renderedNodePositions.get(node.id);
+
+                if (rendered) {
+                    nodeX = rendered.x;
+                    nodeY = rendered.y;
+                }
+            }
+
+            if (
+                nodeX === undefined ||
+                nodeY === undefined
+            ) {
+                if (
+                    typeof node.x !== 'number' ||
+                    typeof node.y !== 'number'
+                ) {
+                    continue;
+                }
+
+                nodeX =
+                    node.id === 0
+                        ? centerX
+                        : centerX + node.x;
+
+                nodeY =
+                    node.id === 0
+                        ? centerY
+                        : centerY + node.y;
+            }
+
+            const dx = x - nodeX;
+            const dy = y - nodeY;
+
+            if (
+                Math.sqrt(dx * dx + dy * dy)
+                <= clickableRadius
+            ) {
+                return node.id;
+            }
+        }
+
+        return null;
+    }
+
 }

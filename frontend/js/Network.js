@@ -123,6 +123,14 @@ export class Network {
                 });
                 break;
 
+            case 'ATTACK_STARTED':
+                this.handlers.onAttackStarted?.(data);
+                break;
+
+            case 'ATTACK_RESOLVED':
+                this.handlers.onAttackResolved?.(data);
+                break;    
+
             case 'ERROR':
                 this.handlers.onError && this.handlers.onError(data.message || 'Неизвестная ошибка сервера');
                 break;
@@ -172,6 +180,21 @@ export class Network {
         if (!this.ws || !this.roomId) return;
         this._send('START_GAME', {
             request_id: this._requestId()
+        });
+    }
+
+    attackNode(nodeId) {
+        this._send('ATTACK_NODE', {
+            request_id: this._requestId(),
+            node_id: nodeId,
+        });
+    }
+
+    answerTask(taskId, answer) {
+        this._send('ANSWER_TASK', {
+            request_id: this._requestId(),
+            task_id: taskId,
+            answer,
         });
     }
 }

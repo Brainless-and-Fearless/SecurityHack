@@ -12,6 +12,19 @@ export class Controller {
         this.gameTimer = document.getElementById('game-timer');
         this.hudTimerItem = document.getElementById('hud-timer-item');
 
+        this.taskModal = document.getElementById('task-modal');
+        this.taskTitle = document.getElementById('task-title');
+        this.taskDesc = document.getElementById('task-desc');
+        this.taskAnswer = document.getElementById('task-answer');
+        this.submitTaskBtn = document.getElementById(
+            'submit-task-btn'
+        );
+        this.cancelTaskBtn = document.getElementById(
+            'cancel-task-btn'
+        );
+
+        this.activeTask = null;
+
         this._prevResources = null;
         this._prevScore = null;
 
@@ -53,6 +66,23 @@ export class Controller {
 
         lv.setEntryMode('create');
         lv.startAmbientLoop();
+
+        this.submitTaskBtn?.addEventListener(
+            'click',
+            () => this.submitTaskAnswer()
+        );
+
+        this.cancelTaskBtn?.addEventListener(
+            'click',
+            () => this.closeTaskModal()
+        );
+
+        document
+            .getElementById('game-canvas')
+            ?.addEventListener(
+                'click',
+                (event) => this.handleNodeClick(event)
+            );
     }
 
     handleEntrySubmit() {
@@ -276,4 +306,107 @@ export class Controller {
             `${String(seconds).padStart(2, '0')}`
         );
     }
+
+    handleNodeClick(event) {
+        const nodes = Object.values(
+            this.model.state.nodes
+        );
+
+        const nodeId = this.view.getNodeAtPoint(
+            nodes,
+            event.clientX,
+            event.clientY
+        );
+
+        if (nodeId === null) {
+            return;
+        }
+
+        this.network.attackNode(nodeId);
+    }
+
+    onAttackStarted(message) {
+        const task = message.task;
+
+        this.activeTask = task;
+
+        this.taskTitle.textContent =
+            'Взлом узла';
+
+        this.taskDesc.textContent =
+            task.question;
+
+        this.taskAnswer.value = '';
+
+        this.taskModal.classList.remove(
+            'hidden'
+        );
+
+        this.taskAnswer.focus();
+    }
+
+    submitTaskAnswer() {
+        if (!this.activeTask) {
+            return;
+        }
+
+        const answer =
+            this.taskAnswer.value.trim();
+
+        if (!answer) {
+            this.taskAnswer.classList.add(
+                'input-error'
+            );
+
+            return;
+        }
+
+        this.taskAnswer.classList.remove(
+            'input-error'
+        );
+
+        this.network.answerTask(
+            this.activeTask.id,
+            answer
+        );
+    }
+
+    onAttackResolved(message) {
+        if (message.success) {
+            this.closeTaskModal();
+
+            this.lobbyView.showToast(
+                'success',
+                `Узел захвачен! +${message.score_change} очков`
+            );
+
+            return;
+        }
+
+        this.taskTitle.textContent =
+            'Попытка не удалась';
+
+        this.taskDesc.textContent =
+            message.theory
+            || 'Теоретическая справка отсутствует.';
+
+        this.taskAnswer.value = '';
+
+        this.taskModal.classList.remove(
+            'hidden'
+        );
+    }
+
+    closeTaskModal() {
+        this.taskModal.classList.add(
+            'hidden'
+        );
+
+        this.taskAnswer.classList.remove(
+            'input-error'
+        );
+
+        this.activeTask = null;
+    }
+
 }
