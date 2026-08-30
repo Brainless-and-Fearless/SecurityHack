@@ -154,4 +154,80 @@ describe('LobbyView map preview', () => {
 
         vi.unstubAllGlobals();
     });
+
+    test('clears cached preview and can draw a new room preview', () => {
+        const ctx = {
+            clearRect: vi.fn(),
+            beginPath: vi.fn(),
+            arc: vi.fn(),
+            stroke: vi.fn(),
+            fill: vi.fn(),
+            moveTo: vi.fn(),
+            lineTo: vi.fn(),
+        };
+
+        const view = Object.create(
+            LobbyView.prototype
+        );
+
+        view.canvas = {
+            width: 1000,
+            height: 800,
+        };
+        view.ctx = ctx;
+        view._room = {
+            mapPreview: {
+                nodes: [
+                    {
+                        id: 'old-node',
+                        x: 0.2,
+                        y: 0.1,
+                    },
+                ],
+                edges: [],
+                spawnNodes: [],
+            },
+        };
+
+        view._drawMapPreview();
+        expect(ctx.arc).toHaveBeenCalledTimes(1);
+
+        view.clearMapPreview();
+
+        expect(view._room).toBeNull();
+        expect(ctx.clearRect).toHaveBeenLastCalledWith(
+            0,
+            0,
+            1000,
+            800,
+        );
+
+        view._drawMapPreview();
+        expect(ctx.arc).toHaveBeenCalledTimes(1);
+
+        view._room = {
+            mapPreview: {
+                nodes: [
+                    {
+                        id: 'new-node-1',
+                        x: -0.2,
+                        y: 0.1,
+                    },
+                    {
+                        id: 'new-node-2',
+                        x: 0.4,
+                        y: -0.3,
+                    },
+                ],
+                edges: [
+                    ['new-node-1', 'new-node-2'],
+                ],
+                spawnNodes: ['new-node-2'],
+            },
+        };
+
+        view._drawMapPreview();
+        expect(ctx.arc).toHaveBeenCalledTimes(3);
+        expect(ctx.lineTo).toHaveBeenCalledTimes(1);
+    });
 });

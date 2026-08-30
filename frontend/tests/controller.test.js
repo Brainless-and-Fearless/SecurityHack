@@ -921,6 +921,52 @@ test('clicking a node sends ATTACK_NODE through Network', () => {
     ).toHaveBeenCalledWith('node_2');
 });
 
+test('leaving a room clears its preview and allows the next preview', () => {
+    const nextRoom = {
+        roomCode: 'NEXT01',
+        players: [],
+        mapPreview: {
+            nodes: [{ id: 'new-node' }],
+            edges: [],
+            spawnNodes: [],
+        },
+    };
+    const lobbyView = {
+        clearMapPreview: vi.fn(),
+        showEntryScreen: vi.fn(),
+        resetEntryForm: vi.fn(),
+        showLobbyScreen: vi.fn(),
+        renderRoom: vi.fn(),
+    };
+    const context = {
+        network: {
+            leaveRoom: vi.fn(),
+        },
+        room: {
+            roomCode: 'OLD001',
+        },
+        lobbyView,
+    };
+
+    Controller.prototype.handleLeaveRoom.call(
+        context
+    );
+
+    expect(context.network.leaveRoom).toHaveBeenCalledTimes(1);
+    expect(lobbyView.clearMapPreview).toHaveBeenCalledTimes(1);
+    expect(context.room).toBeNull();
+    expect(lobbyView.showEntryScreen).toHaveBeenCalledTimes(1);
+
+    Controller.prototype.onRoomState.call(
+        context,
+        nextRoom,
+    );
+
+    expect(lobbyView.renderRoom).toHaveBeenCalledWith(
+        nextRoom
+    );
+});
+
 
 test('does not send ATTACK_NODE while a task is active', () => {
     const {

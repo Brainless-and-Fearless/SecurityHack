@@ -244,3 +244,100 @@ test('forwards ATTACK_CANCELLED to onAttackCancelled handler', () => {
         onAttackCancelled
     ).toHaveBeenCalledWith(message);
 });
+
+
+function createConnectedNetwork(onError) {
+    const sockets = [];
+
+    class FakeWebSocket {
+        static OPEN = 1;
+
+        constructor() {
+            this.readyState = 0;
+            this.listeners = {};
+            sockets.push(this);
+        }
+
+        addEventListener(type, listener) {
+            this.listeners[type] ??= [];
+            this.listeners[type].push(listener);
+        }
+
+        emit(type, event = {}) {
+            for (const listener of this.listeners[type] ?? []) {
+                listener(event);
+            }
+        }
+
+        close() {
+            this.readyState = 3;
+        }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+
+    const network = new Network(
+        { onError },
+        'ws://localhost/ws'
+    );
+    const connected = network._connect();
+    const socket = sockets[0];
+
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit('open');
+
+    return {
+        connected,
+        network,
+        socket,
+    };
+}
+
+
+test('intentional leave does not report a lost connection', async () => {
+    const onError = vi.fn();
+    const {
+        connected,
+        network,
+        socket,
+    } = createConnectedNetwork(onError);
+
+    await connected;
+
+    network.roomId = 'ABC234';
+    network.you = {
+        id: 'player_1',
+    };
+
+    network.leaveRoom();
+    socket.emit('close');
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(network.ws).toBeNull();
+    expect(network.roomId).toBeNull();
+    expect(network.you).toBeNull();
+
+    vi.unstubAllGlobals();
+});
+
+
+test('unexpected socket close still reports a lost connection', async () => {
+    const onError = vi.fn();
+    const {
+        connected,
+        network,
+        socket,
+    } = createConnectedNetwork(onError);
+
+    await connected;
+
+    socket.emit('close');
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+        'Соединение с сервером потеряно'
+    );
+    expect(network.ws).toBeNull();
+
+    vi.unstubAllGlobals();
+});

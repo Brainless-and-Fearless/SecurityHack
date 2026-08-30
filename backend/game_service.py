@@ -30,6 +30,7 @@ class GameService:
 
         map_spec = generate_map(
             player_count,
+            seed=room.map_preview_seed,
         )
 
         nodes = map_spec_to_nodes(

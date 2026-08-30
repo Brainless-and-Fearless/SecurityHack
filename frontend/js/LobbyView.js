@@ -166,6 +166,11 @@ export class LobbyView {
         this._drawMapPreview();
     }
 
+    clearMapPreview() {
+        this._room = null;
+        this._drawMapPreview();
+    }
+
     flashCopied() {
         this.copyBtn.classList.add('copied');
         this.copyBtn.textContent = '✓';

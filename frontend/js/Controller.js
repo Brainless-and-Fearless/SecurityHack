@@ -159,6 +159,7 @@ export class Controller {
         this.network.leaveRoom();
 
         this.room = null;
+        this.lobbyView.clearMapPreview();
 
         this.lobbyView.showEntryScreen();
         this.lobbyView.resetEntryForm();

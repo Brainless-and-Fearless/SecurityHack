@@ -12,6 +12,7 @@ export class Network {
         this.ws = null;
         this.you = null;
         this.roomId = null;
+        this.expectedCloseSockets = new WeakSet();
     }
 
     _requestId() {
@@ -25,12 +26,21 @@ export class Network {
                 return;
             }
 
-            this.ws = new WebSocket(this.url);
-            this.ws.addEventListener('open', () => resolve(), { once: true });
-            this.ws.addEventListener('error', () => reject(new Error('WS_CONNECTION_ERROR')), { once: true });
-            this.ws.addEventListener('message', (event) => this._handleMessage(event));
-            this.ws.addEventListener('close', () => {
-                this.ws = null;
+            const socket = new WebSocket(this.url);
+            this.ws = socket;
+
+            socket.addEventListener('open', () => resolve(), { once: true });
+            socket.addEventListener('error', () => reject(new Error('WS_CONNECTION_ERROR')), { once: true });
+            socket.addEventListener('message', (event) => this._handleMessage(event));
+            socket.addEventListener('close', () => {
+                if (this.ws === socket) {
+                    this.ws = null;
+                }
+
+                if (this.expectedCloseSockets.delete(socket)) {
+                    return;
+                }
+
                 this.handlers.onError && this.handlers.onError('Соединение с сервером потеряно');
             });
         });
@@ -173,8 +183,14 @@ export class Network {
 
     leaveRoom() {
         if (this.ws) {
-            this.ws.close();
-            this.ws = null;
+            const socket = this.ws;
+
+            this.expectedCloseSockets.add(socket);
+            socket.close();
+
+            if (this.ws === socket) {
+                this.ws = null;
+            }
         }
         this.roomId = null;
         this.you = null;
