@@ -219,3 +219,6 @@ async def test_start_game_uses_map_generator_spawn_nodes(
     }
 
     assert actual_spawn_nodes == expected_spawn_nodes
+
+
+    

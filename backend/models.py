@@ -75,11 +75,16 @@ class Room(BaseModel):
 class Node(BaseModel):
     id: str
 
+    x: float = 0.0
+    y: float = 0.0
+
     owner_id: Optional[str] = None
 
     defence_level: DefenceLevel = DefenceLevel.K1
 
-    neighbor_ids: list[str] = Field(default_factory=list)
+    neighbor_ids: list[str] = Field(
+        default_factory=list
+    )
 
     active_attack_player_id: Optional[str] = None
 

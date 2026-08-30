@@ -120,6 +120,35 @@ test('answerTask sends ANSWER_TASK message', () => {
 });
 
 
+test('cancelAttack sends CANCEL_ATTACK message', () => {
+    const network = new Network(
+        {},
+        'ws://localhost/ws'
+    );
+
+    network.ws = {
+        readyState: WebSocket.OPEN,
+        send: vi.fn(),
+    };
+
+    network.cancelAttack('task_123');
+
+    expect(
+        network.ws.send
+    ).toHaveBeenCalledTimes(1);
+
+    const sent = JSON.parse(
+        network.ws.send.mock.calls[0][0]
+    );
+
+    expect(sent).toEqual({
+        type: 'CANCEL_ATTACK',
+        request_id: expect.any(String),
+        task_id: 'task_123',
+    });
+});
+
+
 test('forwards ATTACK_STARTED to onAttackStarted handler', () => {
     const onAttackStarted = vi.fn();
 
@@ -184,5 +213,34 @@ test('forwards ATTACK_RESOLVED to onAttackResolved handler', () => {
 
     expect(
         onAttackResolved
+    ).toHaveBeenCalledWith(message);
+});
+
+
+test('forwards ATTACK_CANCELLED to onAttackCancelled handler', () => {
+    const onAttackCancelled = vi.fn();
+
+    const network = new Network(
+        { onAttackCancelled },
+        'ws://localhost/ws'
+    );
+
+    const message = {
+        type: 'ATTACK_CANCELLED',
+        request_id: 'req_cancel',
+        task_id: 'task_123',
+        node_id: 'node_7',
+    };
+
+    network._handleMessage({
+        data: JSON.stringify(message),
+    });
+
+    expect(
+        onAttackCancelled
+    ).toHaveBeenCalledTimes(1);
+
+    expect(
+        onAttackCancelled
     ).toHaveBeenCalledWith(message);
 });

@@ -767,6 +767,18 @@ test('handles the complete room-to-game flow', () => {
 });
 
 
+function createTrackedClassList(...initialNames) {
+    const names = new Set(initialNames);
+
+    return {
+        add: vi.fn((name) => names.add(name)),
+        remove: vi.fn((name) => names.delete(name)),
+        toggle: vi.fn(),
+        contains: vi.fn((name) => names.has(name)),
+    };
+}
+
+
 function createAttackController(elements = {}) {
     const model = {
         state: {
@@ -825,11 +837,13 @@ function createAttackController(elements = {}) {
         },
         setEntryMode: vi.fn(),
         startAmbientLoop: vi.fn(),
+        showToast: vi.fn(),
     };
 
     const network = {
         attackNode: vi.fn(),
         answerTask: vi.fn(),
+        cancelAttack: vi.fn(),
         startGame: vi.fn(),
     };
 
@@ -907,7 +921,40 @@ test('clicking a node sends ATTACK_NODE through Network', () => {
     ).toHaveBeenCalledWith('node_2');
 });
 
+
+test('does not send ATTACK_NODE while a task is active', () => {
+    const {
+        controller,
+        view,
+        network,
+    } = createAttackController();
+
+    controller.activeTask = {
+        id: 'task_123',
+        node_id: 'node_2',
+    };
+
+    view.getNodeAtPoint.mockReturnValue(
+        'node_2'
+    );
+
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    expect(
+        network.attackNode
+    ).not.toHaveBeenCalled();
+});
+
 test('ATTACK_STARTED opens task modal with question', () => {
+    const answerClassList = createTrackedClassList(
+        'hidden'
+    );
+    const submitClassList = createTrackedClassList(
+        'hidden'
+    );
     const elements = {
         'task-modal': {
             classList: {
@@ -925,6 +972,17 @@ test('ATTACK_STARTED opens task modal with question', () => {
         'task-answer': {
             value: '',
             focus: vi.fn(),
+            disabled: true,
+            classList: answerClassList,
+        },
+        'submit-task-btn': {
+            addEventListener: vi.fn(),
+            disabled: true,
+            classList: submitClassList,
+        },
+        'cancel-task-btn': {
+            addEventListener: vi.fn(),
+            textContent: 'Continue',
         },
         'game-screen': {
             classList: {
@@ -973,6 +1031,131 @@ test('ATTACK_STARTED opens task modal with question', () => {
     expect(
         elements['task-answer'].focus
     ).toHaveBeenCalled();
+
+    expect(
+        answerClassList.contains('hidden')
+    ).toBe(false);
+    expect(
+        submitClassList.contains('hidden')
+    ).toBe(false);
+    expect(elements['task-answer'].disabled).toBe(false);
+    expect(elements['submit-task-btn'].disabled).toBe(false);
+    expect(
+        elements['cancel-task-btn'].textContent
+    ).toBe('Прервать');
+});
+
+
+test('cancel button requests cancellation without clearing active task', () => {
+    const cancelTaskBtn = {
+        addEventListener: vi.fn(),
+    };
+    const taskModalClassList = createTrackedClassList();
+
+    const {
+        controller,
+        network,
+    } = createAttackController({
+        'cancel-task-btn': cancelTaskBtn,
+        'task-modal': {
+            classList: taskModalClassList,
+        },
+        'task-answer': {
+            value: '',
+            classList: createTrackedClassList(),
+        },
+    });
+
+    const task = {
+        id: 'task_123',
+    };
+    controller.activeTask = task;
+
+    const cancelClickHandler = (
+        cancelTaskBtn.addEventListener.mock.calls
+            .find(([event]) => event === 'click')[1]
+    );
+
+    cancelClickHandler();
+
+    expect(
+        network.cancelAttack
+    ).toHaveBeenCalledWith('task_123');
+    expect(controller.activeTask).toBe(task);
+    expect(
+        taskModalClassList.contains('hidden')
+    ).toBe(false);
+});
+
+
+test('ATTACK_CANCELLED closes modal and clears matching active task', () => {
+    const taskModalClassList = createTrackedClassList();
+
+    const {
+        controller,
+    } = createAttackController({
+        'task-modal': {
+            classList: taskModalClassList,
+        },
+        'task-answer': {
+            value: '',
+            classList: createTrackedClassList(),
+        },
+    });
+
+    controller.activeTask = {
+        id: 'task_123',
+    };
+
+    controller.onAttackCancelled({
+        type: 'ATTACK_CANCELLED',
+        request_id: 'req_cancel',
+        task_id: 'task_123',
+        node_id: 'node_2',
+    });
+
+    expect(controller.activeTask).toBeNull();
+    expect(
+        taskModalClassList.contains('hidden')
+    ).toBe(true);
+});
+
+
+test('cancel button closes an already resolved result locally', () => {
+    const cancelTaskBtn = {
+        addEventListener: vi.fn(),
+    };
+    const taskModalClassList = createTrackedClassList();
+
+    const {
+        controller,
+        network,
+    } = createAttackController({
+        'cancel-task-btn': cancelTaskBtn,
+        'task-modal': {
+            classList: taskModalClassList,
+        },
+        'task-answer': {
+            value: '',
+            classList: createTrackedClassList(),
+        },
+    });
+
+    controller.activeTask = null;
+
+    const cancelClickHandler = (
+        cancelTaskBtn.addEventListener.mock.calls
+            .find(([event]) => event === 'click')[1]
+    );
+
+    cancelClickHandler();
+
+    expect(
+        network.cancelAttack
+    ).not.toHaveBeenCalled();
+    expect(
+        taskModalClassList.contains('hidden')
+    ).toBe(true);
 });
 
 
@@ -1022,14 +1205,15 @@ test('submitting task answer sends ANSWER_TASK', () => {
 });
 
 
-test('failed attack displays task theory', () => {
+test('successful attack keeps explanation readable in result modal', () => {
+    const taskModalClassList = createTrackedClassList(
+        'hidden'
+    );
+    const answerClassList = createTrackedClassList();
+    const submitClassList = createTrackedClassList();
     const elements = {
         'task-modal': {
-            classList: {
-                add: vi.fn(),
-                remove: vi.fn(),
-                toggle: vi.fn(),
-            },
+            classList: taskModalClassList,
         },
         'task-title': {
             textContent: '',
@@ -1037,13 +1221,115 @@ test('failed attack displays task theory', () => {
         'task-desc': {
             textContent: '',
         },
+        'task-answer': {
+            value: 'old answer',
+            disabled: false,
+            classList: answerClassList,
+        },
+        'submit-task-btn': {
+            addEventListener: vi.fn(),
+            disabled: false,
+            classList: submitClassList,
+        },
+        'cancel-task-btn': {
+            addEventListener: vi.fn(),
+            textContent: 'Прервать',
+        },
     };
 
     const {
         controller,
+        network,
     } = createAttackController(
         elements
     );
+
+    controller.activeTask = {
+        id: 'task_123',
+    };
+
+    controller.onAttackResolved({
+        type: 'ATTACK_RESOLVED',
+        request_id: 'req_answer',
+        node_id: 'node_2',
+        success: true,
+        score_change: 5,
+        theory: null,
+        explanation: 'AES protects data with a symmetric key.',
+    });
+
+    expect(controller.activeTask).toBeNull();
+    expect(
+        taskModalClassList.contains('hidden')
+    ).toBe(false);
+    expect(
+        elements['task-title'].textContent
+    ).toMatch(/captured|success|захвачен|успеш/i);
+    expect(
+        elements['task-desc'].textContent
+    ).toContain(
+        'AES protects data with a symmetric key.'
+    );
+    expect(
+        answerClassList.contains('hidden')
+    ).toBe(true);
+    expect(
+        submitClassList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['cancel-task-btn'].textContent
+    ).toBe('Продолжить');
+
+    controller.submitTaskAnswer();
+
+    expect(
+        network.answerTask
+    ).not.toHaveBeenCalled();
+});
+
+
+test('failed attack displays task theory', () => {
+    const taskModalClassList = createTrackedClassList(
+        'hidden'
+    );
+    const answerClassList = createTrackedClassList();
+    const submitClassList = createTrackedClassList();
+    const elements = {
+        'task-modal': {
+            classList: taskModalClassList,
+        },
+        'task-title': {
+            textContent: '',
+        },
+        'task-desc': {
+            textContent: '',
+        },
+        'task-answer': {
+            value: 'retry',
+            disabled: false,
+            classList: answerClassList,
+        },
+        'submit-task-btn': {
+            addEventListener: vi.fn(),
+            disabled: false,
+            classList: submitClassList,
+        },
+        'cancel-task-btn': {
+            addEventListener: vi.fn(),
+            textContent: 'Прервать',
+        },
+    };
+
+    const {
+        controller,
+        network,
+    } = createAttackController(
+        elements
+    );
+
+    controller.activeTask = {
+        id: 'task_123',
+    };
 
     controller.onAttackResolved({
         type: 'ATTACK_RESOLVED',
@@ -1055,9 +1341,106 @@ test('failed attack displays task theory', () => {
         explanation: null,
     });
 
+    expect(controller.activeTask).toBeNull();
+    expect(
+        taskModalClassList.contains('hidden')
+    ).toBe(false);
+    expect(
+        answerClassList.contains('hidden')
+    ).toBe(true);
+    expect(
+        submitClassList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['cancel-task-btn'].textContent
+    ).toBe('Продолжить');
+
+    controller.submitTaskAnswer();
+
+    expect(
+        network.answerTask
+    ).not.toHaveBeenCalled();
+
     expect(
         elements['task-desc'].textContent
     ).toBe(
         'Криптографическая теория'
     );
+});
+
+
+test('next ATTACK_STARTED restores task input controls after result', () => {
+    const answerClassList = createTrackedClassList();
+    const submitClassList = createTrackedClassList();
+    const elements = {
+        'task-modal': {
+            classList: createTrackedClassList(),
+        },
+        'task-title': {
+            textContent: '',
+        },
+        'task-desc': {
+            textContent: '',
+        },
+        'task-answer': {
+            value: 'old answer',
+            focus: vi.fn(),
+            disabled: false,
+            classList: answerClassList,
+        },
+        'submit-task-btn': {
+            addEventListener: vi.fn(),
+            disabled: false,
+            classList: submitClassList,
+        },
+        'cancel-task-btn': {
+            addEventListener: vi.fn(),
+            textContent: 'Прервать',
+        },
+    };
+
+    const {
+        controller,
+    } = createAttackController(
+        elements
+    );
+
+    controller.activeTask = {
+        id: 'task_123',
+    };
+
+    controller.onAttackResolved({
+        type: 'ATTACK_RESOLVED',
+        request_id: 'req_answer',
+        node_id: 'node_2',
+        success: true,
+        score_change: 5,
+        theory: null,
+        explanation: 'Explanation for the completed task.',
+    });
+
+    expect(answerClassList.contains('hidden')).toBe(true);
+    expect(submitClassList.contains('hidden')).toBe(true);
+
+    controller.onAttackStarted({
+        type: 'ATTACK_STARTED',
+        request_id: 'req_next_attack',
+        node_id: 'node_3',
+        task: {
+            id: 'task_456',
+            node_id: 'node_3',
+            player_id: 'player_1',
+            defence_level: 'K1',
+            template_id: 'test_k1_next',
+            question: 'Next question?',
+        },
+    });
+
+    expect(answerClassList.contains('hidden')).toBe(false);
+    expect(submitClassList.contains('hidden')).toBe(false);
+    expect(elements['task-answer'].disabled).toBe(false);
+    expect(elements['submit-task-btn'].disabled).toBe(false);
+    expect(
+        elements['cancel-task-btn'].textContent
+    ).toBe('Прервать');
 });

@@ -204,6 +204,18 @@ def can_attack(
     if not _owned_neighbors(game, player_id, node_id):
         return False, "NODE_NOT_NEIGHBOR"
 
+    if (
+        node.active_attack_player_id is not None
+        and node.active_attack_player_id != player_id
+    ):
+        return False, "NODE_BUSY"
+
+    if any(
+        task.player_id == player_id
+        for task in game.tasks.values()
+    ):
+        return False, "PLAYER_ALREADY_ATTACKING"
+
     if node.active_attack_player_id is not None:
         return False, "NODE_BUSY"
 
@@ -309,6 +321,35 @@ def resolve_attack(
     task_manager.remove_task(task.id)
 
     return score_change
+
+
+def cancel_attack(
+    game: GameState,
+    player_id: str,
+    task_id: str,
+    task_manager,
+) -> None:
+    """Cancel an owned active attack without applying rewards."""
+
+    task = game.tasks.get(task_id)
+
+    if task is None:
+        raise ValueError("TASK_NOT_FOUND")
+
+    if task.player_id != player_id:
+        raise ValueError("TASK_NOT_OWNED")
+
+    node = game.nodes.get(task.node_id)
+
+    if node is None:
+        raise ValueError("NODE_NOT_FOUND")
+
+    # Validate both stores before mutating either one.
+    task_manager.get_task(task_id)
+
+    node.active_attack_player_id = None
+    del game.tasks[task_id]
+    task_manager.remove_task(task_id)
 
 
 # ---------------------------------------------------------------------------

@@ -113,6 +113,12 @@ class AnswerTaskMessage(BaseModel):
     answer: str
 
 
+class CancelAttackMessage(BaseModel):
+    type: Literal["CANCEL_ATTACK"]
+    request_id: str
+    task_id: str
+
+
 class UpgradeNodeMessage(BaseModel):
     type: Literal["UPGRADE_NODE"]
     request_id: str
@@ -154,6 +160,13 @@ class AttackResolvedMessage(BaseModel):
     score_change: int
     theory: str | None = None
     explanation: str | None = None
+
+
+class AttackCancelledMessage(BaseModel):
+    type: Literal["ATTACK_CANCELLED"]
+    request_id: str
+    task_id: str
+    node_id: str
 
 
 class GameFinishedMessage(BaseModel):

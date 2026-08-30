@@ -38,6 +38,89 @@ def create_test_websocket_task_manager():
     )
 
 
+def start_two_player_websocket_attack(
+    host_ws,
+    player_ws,
+    consume_game_state=True,
+):
+    host_ws.send_json(
+        {
+            "type": "CREATE_ROOM",
+            "request_id": "req_create_for_cancel",
+            "nickname": "Alice",
+        }
+    )
+
+    host_ws.receive_json()  # ROOM_STATE
+    host_created = host_ws.receive_json()
+
+    player_ws.send_json(
+        {
+            "type": "JOIN_ROOM",
+            "request_id": "req_join_for_cancel",
+            "room_id": host_created["room_id"],
+            "nickname": "Bob",
+        }
+    )
+
+    player_ws.receive_json()  # ROOM_STATE
+    player_joined = player_ws.receive_json()
+    host_ws.receive_json()  # updated ROOM_STATE
+
+    host_ws.send_json(
+        {
+            "type": "START_GAME",
+            "request_id": "req_start_for_cancel",
+        }
+    )
+
+    host_ws.receive_json()  # GAME_STARTED
+    host_game_state = host_ws.receive_json()
+    player_ws.receive_json()  # GAME_STARTED
+    player_ws.receive_json()  # GAME_STATE
+
+    game = host_game_state["game"]
+    host_player_id = host_created["player_id"]
+    owned_node_id = game["players"][
+        host_player_id
+    ]["owned_node_ids"][0]
+
+    target_node_id = next(
+        node_id
+        for node_id in game["nodes"][
+            owned_node_id
+        ]["neighbor_ids"]
+        if game["nodes"][node_id]["owner_id"]
+        != host_player_id
+    )
+
+    host_ws.send_json(
+        {
+            "type": "ATTACK_NODE",
+            "request_id": "req_attack_for_cancel",
+            "node_id": target_node_id,
+        }
+    )
+
+    attack_started = host_ws.receive_json()
+
+    assert attack_started["type"] == "ATTACK_STARTED"
+
+    if consume_game_state:
+        host_game_state = host_ws.receive_json()
+        player_game_state = player_ws.receive_json()
+
+        assert host_game_state["type"] == "GAME_STATE"
+        assert player_game_state["type"] == "GAME_STATE"
+
+    return {
+        "task": attack_started["task"],
+        "target_node_id": target_node_id,
+        "host_player_id": host_player_id,
+        "player_id": player_joined["player_id"],
+    }
+
+
 def test_create_room_registers_player_connection():
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as websocket:
@@ -651,6 +734,15 @@ def test_answer_task_over_websocket_resolves_attack():
                     assert task["question"] == "Question K1"
                     assert task["template_id"] == "test_k1"
 
+                    attack_game_state = host_ws.receive_json()
+                    player_attack_game_state = player_ws.receive_json()
+
+                    assert attack_game_state["type"] == "GAME_STATE"
+                    assert (
+                        player_attack_game_state["type"]
+                        == "GAME_STATE"
+                    )
+
                     host_ws.send_json(
                         {
                             "type": "ANSWER_TASK",
@@ -712,3 +804,147 @@ def test_answer_task_over_websocket_resolves_attack():
 
         finally:
             app.state.task_manager = original_task_manager
+
+
+def test_attack_start_broadcasts_game_state_to_all_players():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                attack = start_two_player_websocket_attack(
+                    host_ws,
+                    player_ws,
+                    consume_game_state=False,
+                )
+
+                task = attack["task"]
+                node_id = attack["target_node_id"]
+
+                # This safe probe produces an ERROR after any messages
+                # already queued by the successful attack start.
+                host_ws.send_json(
+                    {
+                        "type": "ATTACK_NODE",
+                        "request_id": "req_attack_probe",
+                        "node_id": node_id,
+                    }
+                )
+
+                host_game_state = host_ws.receive_json()
+
+                assert host_game_state["type"] == "GAME_STATE"
+
+                host_probe_error = host_ws.receive_json()
+
+                assert host_probe_error["type"] == "ERROR"
+                assert host_probe_error["code"] == (
+                    "PLAYER_ALREADY_ATTACKING"
+                )
+
+                # Bob must receive the queued GAME_STATE before the
+                # response to his own non-mutating ownership probe.
+                player_ws.send_json(
+                    {
+                        "type": "CANCEL_ATTACK",
+                        "request_id": "req_cancel_probe",
+                        "task_id": task["id"],
+                    }
+                )
+
+                player_game_state = player_ws.receive_json()
+
+                assert player_game_state["type"] == "GAME_STATE"
+                assert (
+                    player_game_state["game"]
+                    == host_game_state["game"]
+                )
+
+                player_probe_error = player_ws.receive_json()
+
+                assert player_probe_error["type"] == "ERROR"
+                assert player_probe_error["code"] == "TASK_NOT_OWNED"
+
+                game = host_game_state["game"]
+
+                assert (
+                    game["nodes"][node_id][
+                        "active_attack_player_id"
+                    ]
+                    == attack["host_player_id"]
+                )
+                assert task["id"] in game["tasks"]
+
+
+def test_cancel_attack_over_websocket_acknowledges_and_broadcasts_state():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                attack = start_two_player_websocket_attack(
+                    host_ws,
+                    player_ws,
+                )
+
+                task = attack["task"]
+                node_id = attack["target_node_id"]
+
+                host_ws.send_json(
+                    {
+                        "type": "CANCEL_ATTACK",
+                        "request_id": "req_cancel",
+                        "task_id": task["id"],
+                    }
+                )
+
+                acknowledgement = host_ws.receive_json()
+
+                assert acknowledgement == {
+                    "type": "ATTACK_CANCELLED",
+                    "request_id": "req_cancel",
+                    "task_id": task["id"],
+                    "node_id": node_id,
+                }
+
+                host_game_state = host_ws.receive_json()
+                player_game_state = player_ws.receive_json()
+
+                assert host_game_state["type"] == "GAME_STATE"
+                assert player_game_state["type"] == "GAME_STATE"
+                assert (
+                    host_game_state["game"]
+                    == player_game_state["game"]
+                )
+
+                updated_game = host_game_state["game"]
+
+                assert (
+                    updated_game["nodes"][node_id][
+                        "active_attack_player_id"
+                    ]
+                    is None
+                )
+                assert task["id"] not in updated_game["tasks"]
+
+
+def test_player_cannot_cancel_another_players_attack_over_websocket():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                attack = start_two_player_websocket_attack(
+                    host_ws,
+                    player_ws,
+                )
+
+                player_ws.send_json(
+                    {
+                        "type": "CANCEL_ATTACK",
+                        "request_id": "req_cancel_not_owned",
+                        "task_id": attack["task"]["id"],
+                    }
+                )
+
+                response = player_ws.receive_json()
+
+                assert response["type"] == "ERROR"
+                assert response["request_id"] == (
+                    "req_cancel_not_owned"
+                )
+                assert response["code"] == "TASK_NOT_OWNED"

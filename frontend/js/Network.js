@@ -129,7 +129,11 @@ export class Network {
 
             case 'ATTACK_RESOLVED':
                 this.handlers.onAttackResolved?.(data);
-                break;    
+                break;
+
+            case 'ATTACK_CANCELLED':
+                this.handlers.onAttackCancelled?.(data);
+                break;
 
             case 'ERROR':
                 this.handlers.onError && this.handlers.onError(data.message || 'Неизвестная ошибка сервера');
@@ -195,6 +199,13 @@ export class Network {
             request_id: this._requestId(),
             task_id: taskId,
             answer,
+        });
+    }
+
+    cancelAttack(taskId) {
+        this._send('CANCEL_ATTACK', {
+            request_id: this._requestId(),
+            task_id: taskId,
         });
     }
 }

@@ -1,7 +1,7 @@
 import pytest
 
 from map_conversion import map_spec_to_nodes
-from map_generator import generate_map
+from map_generator import MapNode, MapSpec, generate_map
 from models import DefenceLevel
 
 
@@ -59,3 +59,41 @@ def test_converted_nodes_preserve_graph_edges():
     for source, target in map_spec.edges:
         assert target in neighbors[source]
         assert source in neighbors[target]
+
+def test_map_spec_to_nodes_preserves_node_coordinates():
+    map_spec = MapSpec(
+        orbit_count=1,
+        nodes=(
+            MapNode(
+                id="n1_0",
+                orbit=1,
+                x=0.25,
+                y=-0.4,
+            ),
+            MapNode(
+                id="n1_1",
+                orbit=1,
+                x=-0.7,
+                y=0.15,
+            ),
+        ),
+        edges=(
+            ("n1_0", "n1_1"),
+        ),
+        spawn_nodes=(
+            "n1_0",
+        ),
+    )
+
+    nodes = map_spec_to_nodes(map_spec)
+
+    nodes_by_id = {
+        node.id: node
+        for node in nodes
+    }
+
+    assert nodes_by_id["n1_0"].x == 0.25
+    assert nodes_by_id["n1_0"].y == -0.4
+
+    assert nodes_by_id["n1_1"].x == -0.7
+    assert nodes_by_id["n1_1"].y == 0.15        

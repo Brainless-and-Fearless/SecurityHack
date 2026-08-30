@@ -16,6 +16,7 @@ from redis_repository import (
     RoomRepository,
 )
 from game_logic import (
+    cancel_attack,
     start_attack,
     resolve_attack,
 )
@@ -32,8 +33,10 @@ from network_models import (
     ErrorMessage,
     AttackNodeMessage,
     AnswerTaskMessage,
+    CancelAttackMessage,
     AttackStartedMessage,
     AttackResolvedMessage,
+    AttackCancelledMessage,
 )
 
 def generate_player_id() -> str:
@@ -407,6 +410,111 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 await websocket.send_json(
                     response.model_dump(mode="json")
+                )
+
+                await connection_manager.broadcast_to_room(
+                    room.id,
+                    {
+                        "type": "GAME_STATE",
+                        "game_id": room.game_id,
+                        "game": game.model_dump(
+                            mode="json"
+                        ),
+                    },
+                )
+
+                continue
+
+
+            if message_type == "CANCEL_ATTACK":
+                cancel_message = CancelAttackMessage.model_validate(
+                    message
+                )
+
+                if current_room_id is None:
+                    await send_error(
+                        code="NOT_IN_ROOM",
+                        message="Player is not in a room.",
+                        request_id=cancel_message.request_id,
+                    )
+                    continue
+
+                room = await websocket.app.state.room_repository.get_room(
+                    current_room_id
+                )
+
+                if room is None:
+                    await send_error(
+                        code="ROOM_NOT_FOUND",
+                        message="Room not found.",
+                        request_id=cancel_message.request_id,
+                    )
+                    continue
+
+                if room.game_id is None:
+                    await send_error(
+                        code="GAME_NOT_STARTED",
+                        message="Game has not started.",
+                        request_id=cancel_message.request_id,
+                    )
+                    continue
+
+                game = await game_repository.get_game(
+                    room.game_id
+                )
+
+                if game is None:
+                    await send_error(
+                        code="GAME_STATE_NOT_FOUND",
+                        message="Game state not found.",
+                        request_id=cancel_message.request_id,
+                    )
+                    continue
+
+                task = game.tasks.get(
+                    cancel_message.task_id
+                )
+
+                try:
+                    cancel_attack(
+                        game,
+                        player_id,
+                        cancel_message.task_id,
+                        websocket.app.state.task_manager,
+                    )
+                except ValueError as exc:
+                    await send_error(
+                        code=str(exc),
+                        message=str(exc),
+                        request_id=cancel_message.request_id,
+                    )
+                    continue
+
+                await game_repository.save_game(
+                    room.game_id,
+                    game,
+                )
+
+                response = AttackCancelledMessage(
+                    type="ATTACK_CANCELLED",
+                    request_id=cancel_message.request_id,
+                    task_id=cancel_message.task_id,
+                    node_id=task.node_id,
+                )
+
+                await websocket.send_json(
+                    response.model_dump(mode="json")
+                )
+
+                await connection_manager.broadcast_to_room(
+                    room.id,
+                    {
+                        "type": "GAME_STATE",
+                        "game_id": room.game_id,
+                        "game": game.model_dump(
+                            mode="json"
+                        ),
+                    },
                 )
 
                 continue

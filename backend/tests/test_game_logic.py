@@ -1,4 +1,5 @@
 import pytest
+import game_logic
 
 from task_manager import TaskManager
 from models import (
@@ -110,6 +111,36 @@ def create_two_player_attack_test_game():
     ]
 
     return create_game(nodes)
+
+
+def create_player_with_two_attack_targets_game():
+    """Create a running game with two valid targets for player_1."""
+
+    nodes = [
+        Node(id="A", neighbor_ids=["B", "C", "D"]),
+        Node(id="B", neighbor_ids=["A"]),
+        Node(id="C", neighbor_ids=["A"]),
+        Node(id="D", neighbor_ids=["A"]),
+    ]
+
+    game = create_game(nodes)
+
+    add_player(
+        game,
+        "player_1",
+        "Alice",
+        start_node_id="A",
+    )
+    add_player(
+        game,
+        "player_2",
+        "Bob",
+        start_node_id="D",
+    )
+
+    start_game(game)
+
+    return game
 
 
 def prepare_two_player_game():
@@ -266,6 +297,29 @@ def test_node_cannot_have_two_simultaneous_attacks():
             game,
             "player_2",
             "C",
+        )
+
+
+def test_player_cannot_start_second_simultaneous_attack():
+    game = create_player_with_two_attack_targets_game()
+    task_manager = create_test_task_manager()
+
+    start_test_attack(
+        game,
+        "player_1",
+        "B",
+        task_manager,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="PLAYER_ALREADY_ATTACKING",
+    ):
+        start_test_attack(
+            game,
+            "player_1",
+            "C",
+            task_manager,
         )
 
 
@@ -432,6 +486,100 @@ def test_failed_k1_attack_removes_3_points():
 
     assert game.nodes["B"].active_attack_player_id is None
     assert game.tasks == {}
+
+    retry_task = start_test_attack(
+        game,
+        "player_1",
+        "B",
+        task_manager,
+    )
+
+    assert retry_task.id in game.tasks
+    assert (
+        game.nodes["B"].active_attack_player_id
+        == "player_1"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Attack cancellation
+# ---------------------------------------------------------------------------
+
+def test_cancel_attack_rejects_unknown_task():
+    game = create_player_with_two_attack_targets_game()
+    task_manager = create_test_task_manager()
+
+    with pytest.raises(
+        ValueError,
+        match="TASK_NOT_FOUND",
+    ):
+        game_logic.cancel_attack(
+            game,
+            "player_1",
+            "missing_task",
+            task_manager,
+        )
+
+
+def test_cancel_attack_rejects_task_owned_by_another_player():
+    game = create_player_with_two_attack_targets_game()
+    task_manager = create_test_task_manager()
+
+    task = start_test_attack(
+        game,
+        "player_1",
+        "B",
+        task_manager,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="TASK_NOT_OWNED",
+    ):
+        game_logic.cancel_attack(
+            game,
+            "player_2",
+            task.id,
+            task_manager,
+        )
+
+    assert task.id in game.tasks
+    assert task.id in task_manager.tasks
+    assert (
+        game.nodes["B"].active_attack_player_id
+        == "player_1"
+    )
+
+
+def test_cancel_attack_releases_node_and_removes_task_without_rewards():
+    game = create_player_with_two_attack_targets_game()
+    task_manager = create_test_task_manager()
+
+    player = game.players["player_1"]
+    player.score = 17
+
+    task = start_test_attack(
+        game,
+        player.id,
+        "B",
+        task_manager,
+    )
+
+    original_owner_id = game.nodes["B"].owner_id
+    original_score = player.score
+
+    game_logic.cancel_attack(
+        game,
+        player.id,
+        task.id,
+        task_manager,
+    )
+
+    assert game.nodes["B"].active_attack_player_id is None
+    assert task.id not in game.tasks
+    assert task.id not in task_manager.tasks
+    assert game.nodes["B"].owner_id == original_owner_id
+    assert player.score == original_score
 
 
 def test_failed_k3_attack_removes_9_points_without_changing_owner():
@@ -893,4 +1041,4 @@ def test_resolve_attack_removes_task_from_task_manager():
         ValueError,
         match="TASK_NOT_FOUND",
     ):
-        task_manager.get_task(task.id)    
+        task_manager.get_task(task.id)

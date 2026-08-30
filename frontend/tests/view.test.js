@@ -130,3 +130,70 @@ test('scales normalized node coordinates to screen coordinates', () => {
         300 - 0.5 * (600 * 0.42)
     );
 });
+
+
+test('stale attack animation stops after render without active attack', () => {
+    const scheduledFrames = [];
+
+    const requestAnimationFrame = vi.fn(
+        (callback) => {
+            scheduledFrames.push(callback);
+            return scheduledFrames.length;
+        }
+    );
+
+    vi.stubGlobal(
+        'requestAnimationFrame',
+        requestAnimationFrame
+    );
+
+    const view = Object.create(View.prototype);
+
+    view.canvas = {
+        width: 800,
+        height: 600,
+    };
+
+    view.ctx = {
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+    };
+
+    view.getOwner = vi.fn(() => null);
+    view.getDefenceLevel = vi.fn(() => 1);
+    view.getOwnerColor = vi.fn(() => '#334155');
+    view.drawDefenceDots = vi.fn();
+
+    view.render([
+        {
+            id: 'node_1',
+            x: 0,
+            y: 0,
+            owner_id: null,
+            defence_level: 'K1',
+            active_attack_player_id: 'player_1',
+        },
+    ]);
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+    view.render([
+        {
+            id: 'node_1',
+            x: 0,
+            y: 0,
+            owner_id: null,
+            defence_level: 'K1',
+            active_attack_player_id: null,
+        },
+    ]);
+
+    scheduledFrames[0]();
+
+    vi.unstubAllGlobals();
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+});

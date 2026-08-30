@@ -68,6 +68,11 @@ export class View {
     }
 
     render(nodes) {
+        const renderGeneration =
+            (this._renderGeneration ?? 0) + 1;
+
+        this._renderGeneration = renderGeneration;
+
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this._renderedNodePositions = new Map();
 
@@ -132,7 +137,16 @@ export class View {
 
         // Анимация нужна только пока есть атакуемые узлы.
         if (nodes.some(node => node.active_attack_player_id != null || node.activeAttackPlayerId != null)) {
-            requestAnimationFrame(() => this.render(nodes));
+            requestAnimationFrame(() => {
+                if (
+                    renderGeneration
+                    !== this._renderGeneration
+                ) {
+                    return;
+                }
+
+                this.render(nodes);
+            });
         }
     }
 

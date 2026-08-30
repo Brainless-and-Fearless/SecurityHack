@@ -74,7 +74,7 @@ export class Controller {
 
         this.cancelTaskBtn?.addEventListener(
             'click',
-            () => this.closeTaskModal()
+            () => this.handleCancelTask()
         );
 
         document
@@ -308,6 +308,10 @@ export class Controller {
     }
 
     handleNodeClick(event) {
+        if (this.activeTask) {
+            return;
+        }
+
         const nodes = Object.values(
             this.model.state.nodes
         );
@@ -330,6 +334,8 @@ export class Controller {
 
         this.activeTask = task;
 
+        this.showTaskInputState();
+
         this.taskTitle.textContent =
             'Взлом узла';
 
@@ -337,6 +343,11 @@ export class Controller {
             task.question;
 
         this.taskAnswer.value = '';
+
+        if (this.cancelTaskBtn) {
+            this.cancelTaskBtn.textContent =
+                'Прервать';
+        }
 
         this.taskModal.classList.remove(
             'hidden'
@@ -372,8 +383,31 @@ export class Controller {
     }
 
     onAttackResolved(message) {
+        this.activeTask = null;
+
+        this.showTaskResultState();
+
+        this.taskAnswer.classList.remove(
+            'input-error'
+        );
+        this.taskAnswer.value = '';
+
+        if (this.cancelTaskBtn) {
+            this.cancelTaskBtn.textContent =
+                'Продолжить';
+        }
+
         if (message.success) {
-            this.closeTaskModal();
+            this.taskTitle.textContent =
+                'Узел успешно захвачен';
+
+            this.taskDesc.textContent =
+                message.explanation
+                || 'Объяснение отсутствует.';
+
+            this.taskModal.classList.remove(
+                'hidden'
+            );
 
             this.lobbyView.showToast(
                 'success',
@@ -395,6 +429,58 @@ export class Controller {
         this.taskModal.classList.remove(
             'hidden'
         );
+    }
+
+    showTaskInputState() {
+        this.taskAnswer.classList.remove(
+            'hidden'
+        );
+        this.taskAnswer.disabled = false;
+
+        this.submitTaskBtn?.classList.remove(
+            'hidden'
+        );
+
+        if (this.submitTaskBtn) {
+            this.submitTaskBtn.disabled = false;
+        }
+    }
+
+    showTaskResultState() {
+        this.taskAnswer.classList.add(
+            'hidden'
+        );
+        this.taskAnswer.disabled = true;
+
+        this.submitTaskBtn?.classList.add(
+            'hidden'
+        );
+
+        if (this.submitTaskBtn) {
+            this.submitTaskBtn.disabled = true;
+        }
+    }
+
+    handleCancelTask() {
+        if (this.activeTask) {
+            this.network.cancelAttack(
+                this.activeTask.id
+            );
+            return;
+        }
+
+        this.closeTaskModal();
+    }
+
+    onAttackCancelled(message) {
+        if (
+            !this.activeTask
+            || this.activeTask.id !== message.task_id
+        ) {
+            return;
+        }
+
+        this.closeTaskModal();
     }
 
     closeTaskModal() {

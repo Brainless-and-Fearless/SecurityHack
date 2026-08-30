@@ -6,6 +6,8 @@ def map_spec_to_nodes(map_spec: MapSpec) -> list[Node]:
     nodes_by_id = {
         map_node.id: Node(
             id=map_node.id,
+            x=map_node.x,
+            y=map_node.y,
             owner_id=None,
             defence_level=DefenceLevel.K1,
             neighbor_ids=[],

@@ -11,6 +11,12 @@ const mocks = vi.hoisted(() => ({
     capturedLobbyTransport: {
         value: null,
     },
+
+    capturedNetworkHandlers: {
+        value: null,
+    },
+
+    onAttackCancelled: vi.fn(),
 }));
 
 vi.mock('../js/Model.js', () => ({
@@ -33,7 +39,9 @@ vi.mock('../js/LobbyView.js', () => ({
 
 vi.mock('../js/Network.js', () => ({
     Network: class {
-        constructor() {
+        constructor(handlers) {
+            mocks.capturedNetworkHandlers.value =
+                handlers;
             return mocks.network;
         }
     },
@@ -49,6 +57,10 @@ vi.mock('../js/Controller.js', () => ({
         ) {
             mocks.capturedLobbyTransport.value =
                 lobbyTransport;
+        }
+
+        onAttackCancelled(message) {
+            mocks.onAttackCancelled(message);
         }
     },
 }));
@@ -71,6 +83,41 @@ describe('app bootstrap', () => {
         expect(
             mocks.capturedLobbyTransport.value
         ).toBe(mocks.network);
+
+        vi.unstubAllGlobals();
+    });
+
+    test('routes ATTACK_CANCELLED from Network to Controller', async () => {
+        vi.stubGlobal('document', {
+            addEventListener: vi.fn(
+                (event, callback) => {
+                    if (event === 'DOMContentLoaded') {
+                        callback();
+                    }
+                },
+            ),
+        });
+
+        await import('../js/app.js');
+
+        const message = {
+            type: 'ATTACK_CANCELLED',
+            request_id: 'req_cancel',
+            task_id: 'task_123',
+            node_id: 'node_7',
+        };
+
+        expect(
+            mocks.capturedNetworkHandlers.value
+                .onAttackCancelled
+        ).toEqual(expect.any(Function));
+
+        mocks.capturedNetworkHandlers.value
+            .onAttackCancelled(message);
+
+        expect(
+            mocks.onAttackCancelled
+        ).toHaveBeenCalledWith(message);
 
         vi.unstubAllGlobals();
     });
