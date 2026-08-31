@@ -1,0 +1,84 @@
+name: Deploy SecurityHack
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: securityhack-production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: [self-hosted, Linux, X64, production-securityhack]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Sync application files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -d /var/www/html
+          test -w /var/www/html
+          command -v rsync >/dev/null
+
+          rsync -a --delete \
+            --exclude=".git/" \
+            --exclude=".github/" \
+            --exclude=".env" \
+            --exclude="backend/.env" \
+            --exclude="backend/venv/" \
+            --exclude="backend/*.db" \
+            --exclude="uploads/" \
+            --exclude="media/" \
+            --exclude="data/" \
+            ./ /var/www/html/
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd /var/www/html
+
+          if [ ! -x backend/venv/bin/python ]; then
+            python3 -m venv backend/venv
+          fi
+
+          backend/venv/bin/pip install -r backend/requirements.txt
+
+      - name: Restart FastAPI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo /usr/bin/systemctl restart fastapi.service
+          /usr/bin/systemctl is-active --quiet fastapi.service
+
+      - name: Check API health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:8000/health; then
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "FastAPI health check failed"
+          exit 1
