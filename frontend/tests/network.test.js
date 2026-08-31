@@ -1,6 +1,16 @@
 import { describe, expect, test, vi } from 'vitest';
 import { Network } from '../js/Network.js';
 
+function createSessionStorage(initial = {}) {
+    const values = new Map(Object.entries(initial));
+
+    return {
+        getItem: vi.fn((key) => values.get(key) ?? null),
+        setItem: vi.fn((key, value) => values.set(key, value)),
+        removeItem: vi.fn((key) => values.delete(key)),
+    };
+}
+
 describe('Network', () => {
     test('forwards GAME_STATE to onGameState handler', () => {
         const onGameState = vi.fn();
@@ -418,5 +428,344 @@ test('unexpected socket close still reports a lost connection', async () => {
     );
     expect(network.ws).toBeNull();
 
+    vi.unstubAllGlobals();
+});
+
+
+test.each(['ROOM_CREATED', 'ROOM_JOINED'])(
+    '%s stores private resume token in session storage',
+    (type) => {
+        const storage = createSessionStorage();
+        const network = new Network(
+            {},
+            'ws://localhost/ws',
+            { storage }
+        );
+
+        network._handleMessage({
+            data: JSON.stringify({
+                type,
+                request_id: 'req_session',
+                room_id: 'ABC234',
+                player_id: 'player_1',
+                is_host: type === 'ROOM_CREATED',
+                session_token: 'private-token',
+            }),
+        });
+
+        expect(network.sessionToken).toBe('private-token');
+        expect(storage.setItem).toHaveBeenCalledWith(
+            'securityhack.sessionToken',
+            'private-token'
+        );
+    }
+);
+
+
+function createReconnectNetwork({
+    token = 'private-token',
+    handlers = {},
+} = {}) {
+    const sockets = [];
+    const storage = createSessionStorage({
+        'securityhack.sessionToken': token,
+    });
+
+    class ReconnectWebSocket {
+        static OPEN = 1;
+
+        constructor() {
+            this.readyState = 0;
+            this.listeners = {};
+            this.send = vi.fn();
+            sockets.push(this);
+        }
+
+        addEventListener(type, listener) {
+            this.listeners[type] ??= [];
+            this.listeners[type].push(listener);
+        }
+
+        emit(type, event = {}) {
+            for (const listener of this.listeners[type] ?? []) {
+                listener(event);
+            }
+        }
+
+        close() {
+            this.readyState = 3;
+        }
+    }
+
+    vi.stubGlobal('WebSocket', ReconnectWebSocket);
+
+    const network = new Network(
+        handlers,
+        'ws://localhost/ws',
+        { storage }
+    );
+
+    return {
+        network,
+        sockets,
+        storage,
+        WebSocketClass: ReconnectWebSocket,
+    };
+}
+
+
+test('unexpected close schedules one reconnect and resumes stored session', async () => {
+    vi.useFakeTimers();
+    const onConnectionStateChange = vi.fn();
+    const {
+        network,
+        sockets,
+        WebSocketClass,
+    } = createReconnectNetwork({
+        handlers: { onConnectionStateChange },
+    });
+    const connected = network._connect();
+    const firstSocket = sockets[0];
+    firstSocket.readyState = WebSocketClass.OPEN;
+    firstSocket.emit('open');
+    await connected;
+
+    firstSocket.emit('close');
+    firstSocket.emit('close');
+
+    expect(network.connectionState).toBe('reconnecting');
+    expect(vi.getTimerCount()).toBe(1);
+    expect(onConnectionStateChange).toHaveBeenCalledWith(
+        'reconnecting'
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sockets).toHaveLength(2);
+
+    const resumedSocket = sockets[1];
+    resumedSocket.readyState = WebSocketClass.OPEN;
+    resumedSocket.emit('open');
+    await Promise.resolve();
+
+    expect(resumedSocket.send).toHaveBeenCalledTimes(1);
+    const resumeRequest = JSON.parse(
+        resumedSocket.send.mock.calls[0][0]
+    );
+    expect(resumeRequest).toEqual({
+        type: 'RESUME_SESSION',
+        request_id: expect.any(String),
+        session_token: 'private-token',
+    });
+
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'SESSION_RESUMED',
+            request_id: resumeRequest.request_id,
+            player_id: 'player_1',
+            room_id: 'ABC234',
+            is_host: true,
+            game_id: null,
+        }),
+    });
+
+    expect(network.you).toEqual({
+        id: 'player_1',
+        nickname: undefined,
+        isHost: true,
+    });
+    expect(network.roomId).toBe('ABC234');
+    expect(network.connectionState).toBe('reconnecting');
+
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'ROOM_STATE',
+            roomCode: 'ABC234',
+            players: [],
+            you: {
+                id: 'player_1',
+                name: 'Alice',
+                isHost: true,
+            },
+            mapPreview: null,
+        }),
+    });
+
+    expect(network.connectionState).toBe('connected');
+    expect(vi.getTimerCount()).toBe(0);
+
+    network.leaveRoom();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
+
+
+test('resume timeout closes stalled socket and schedules another attempt', async () => {
+    vi.useFakeTimers();
+    const {
+        network,
+        sockets,
+        storage,
+        WebSocketClass,
+    } = createReconnectNetwork();
+
+    network.resumeStoredSession();
+    const socket = sockets[0];
+    socket.readyState = WebSocketClass.OPEN;
+    socket.emit('open');
+    await Promise.resolve();
+
+    expect(JSON.parse(socket.send.mock.calls[0][0])).toMatchObject({
+        type: 'RESUME_SESSION',
+        session_token: 'private-token',
+    });
+    expect(vi.getTimerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(socket.readyState).toBe(3);
+    expect(network.sessionToken).toBe('private-token');
+    expect(storage.removeItem).not.toHaveBeenCalled();
+    expect(network.connectionState).toBe('reconnecting');
+    expect(vi.getTimerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sockets).toHaveLength(2);
+
+    network.leaveRoom();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
+
+
+test('running-game resume completes only after room and game snapshots', async () => {
+    vi.useFakeTimers();
+    const {
+        network,
+        sockets,
+        WebSocketClass,
+    } = createReconnectNetwork();
+
+    network.resumeStoredSession();
+    const socket = sockets[0];
+    socket.readyState = WebSocketClass.OPEN;
+    socket.emit('open');
+    await Promise.resolve();
+    network.reconnectAttempt = 3;
+    const resumeRequest = JSON.parse(
+        socket.send.mock.calls[0][0]
+    );
+
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'SESSION_RESUMED',
+            request_id: resumeRequest.request_id,
+            player_id: 'player_1',
+            room_id: 'ABC234',
+            is_host: true,
+            game_id: 'game_1',
+        }),
+    });
+
+    expect(network.connectionState).toBe('reconnecting');
+
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'ROOM_STATE',
+            roomCode: 'ABC234',
+            players: [],
+            you: {
+                id: 'player_1',
+                name: 'Alice',
+                isHost: true,
+            },
+            mapPreview: null,
+        }),
+    });
+
+    expect(network.connectionState).toBe('reconnecting');
+
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'GAME_STATE',
+            game_id: 'game_1',
+            game: {
+                status: 'running',
+                players: {},
+                nodes: {},
+                tasks: {},
+            },
+        }),
+    });
+
+    expect(network.connectionState).toBe('connected');
+    expect(network.reconnectAttempt).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(sockets).toHaveLength(1);
+
+    network.leaveRoom();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
+
+
+test('intentional leave during resume cancels the handshake timeout', async () => {
+    vi.useFakeTimers();
+    const {
+        network,
+        sockets,
+        WebSocketClass,
+    } = createReconnectNetwork();
+
+    network.resumeStoredSession();
+    const socket = sockets[0];
+    socket.readyState = WebSocketClass.OPEN;
+    socket.emit('open');
+    await Promise.resolve();
+
+    expect(vi.getTimerCount()).toBe(1);
+
+    network.leaveRoom();
+
+    expect(network.sessionToken).toBeNull();
+    expect(network.connectionState).toBe('disconnected');
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(sockets).toHaveLength(1);
+
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
+
+
+test('intentional leave clears resume session and never reconnects', async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const {
+        network,
+        sockets,
+        storage,
+        WebSocketClass,
+    } = createReconnectNetwork({ handlers: { onError } });
+    const connected = network._connect();
+    const socket = sockets[0];
+    socket.readyState = WebSocketClass.OPEN;
+    socket.emit('open');
+    await connected;
+
+    network.leaveRoom();
+    socket.emit('close');
+    await vi.runAllTimersAsync();
+
+    expect(network.sessionToken).toBeNull();
+    expect(storage.removeItem).toHaveBeenCalledWith(
+        'securityhack.sessionToken'
+    );
+    expect(sockets).toHaveLength(1);
+    expect(onError).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
     vi.unstubAllGlobals();
 });

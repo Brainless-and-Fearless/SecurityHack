@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from connection_manager import ConnectionManager
 from task_manager import TaskManager
 from task_pool import TASK_POOL
+from session_registry import SessionRegistry
 from redis_repository import (
     GameStateRepository,
     RoomRepository,
@@ -31,9 +32,11 @@ from room_service import RoomService
 from network_models import (
     CreateRoomMessage,
     JoinRoomMessage,
+    ResumeSessionMessage,
     StartGameMessage,
     RoomCreatedMessage,
     RoomJoinedMessage,
+    SessionResumedMessage,
     ErrorMessage,
     AttackNodeMessage,
     AnswerTaskMessage,
@@ -43,6 +46,7 @@ from network_models import (
     AttackResolvedMessage,
     AttackCancelledMessage,
     NodeUpgradedMessage,
+    GameFinishedMessage,
 )
 
 def generate_player_id() -> str:
@@ -87,6 +91,8 @@ async def lifespan(app: FastAPI):
 
     connection_manager = ConnectionManager()
 
+    session_registry = SessionRegistry()
+
     game_loop_manager = GameLoopManager(
         game_repository,
         connection_manager,
@@ -101,6 +107,7 @@ async def lifespan(app: FastAPI):
     app.state.room_service = room_service
     app.state.task_manager = task_manager
     app.state.connection_manager = connection_manager
+    app.state.session_registry = session_registry
     app.state.game_loop_manager = game_loop_manager
 
     logger.info("SecurityHack API started")
@@ -224,6 +231,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 current_room_id = room.id
 
+                session = websocket.app.state.session_registry.create(
+                    player_id,
+                    room.id,
+                )
+
                 room_state = build_room_state(
                     room=room,
                     current_player_id=player_id,
@@ -243,6 +255,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     room_id=room.id,
                     player_id=player_id,
                     is_host=True,
+                    session_token=session.token,
                 )
 
                 await websocket.send_json(
@@ -275,6 +288,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 current_room_id = room.id
 
+                session = websocket.app.state.session_registry.create(
+                    player_id,
+                    room.id,
+                )
+
                 for target_player_id in room.player_ids:
                     room_state = build_room_state(
                         room=room,
@@ -295,6 +313,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     room_id=room.id,
                     player_id=player_id,
                     is_host=room.host_id == player_id,
+                    session_token=session.token,
                 )
 
                 await websocket.send_json(
@@ -357,6 +376,106 @@ async def websocket_endpoint(websocket: WebSocket):
                     room.id,
                     room.game_id,
                 )
+
+                continue
+
+            # ---------------------------------------------------------
+            # RESUME_SESSION
+            # ---------------------------------------------------------
+            if message_type == "RESUME_SESSION":
+                resume_message = ResumeSessionMessage.model_validate(
+                    message
+                )
+                session_registry = websocket.app.state.session_registry
+                session = session_registry.get(
+                    resume_message.session_token
+                )
+
+                if session is None:
+                    await send_error(
+                        code="INVALID_SESSION",
+                        message="Resume session is invalid.",
+                        request_id=resume_message.request_id,
+                    )
+                    continue
+
+                room = await websocket.app.state.room_repository.get_room(
+                    session.room_id
+                )
+
+                if (
+                    room is None
+                    or session.player_id not in room.player_ids
+                ):
+                    session_registry.invalidate(
+                        resume_message.session_token
+                    )
+                    await send_error(
+                        code="INVALID_SESSION",
+                        message="Resume session is no longer usable.",
+                        request_id=resume_message.request_id,
+                    )
+                    continue
+
+                player_id = session.player_id
+                current_room_id = session.room_id
+
+                await connection_manager.connect(
+                    player_id,
+                    current_room_id,
+                    websocket,
+                )
+
+                resumed = SessionResumedMessage(
+                    type="SESSION_RESUMED",
+                    request_id=resume_message.request_id,
+                    player_id=player_id,
+                    room_id=room.id,
+                    is_host=room.host_id == player_id,
+                    game_id=room.game_id,
+                )
+                await websocket.send_json(
+                    resumed.model_dump(mode="json")
+                )
+
+                room_state = build_room_state(
+                    room=room,
+                    current_player_id=player_id,
+                )
+                await websocket.send_json(
+                    room_state.model_dump(
+                        mode="json",
+                        by_alias=True,
+                    )
+                )
+
+                if room.game_id is not None:
+                    async with game_loop_manager.lock(room.game_id):
+                        game = await game_repository.get_game(
+                            room.game_id
+                        )
+
+                    if game is not None:
+                        await websocket.send_json({
+                            "type": "GAME_STATE",
+                            "game_id": room.game_id,
+                            "game": game.model_dump(mode="json"),
+                        })
+
+                        if game.status == GameStatus.FINISHED:
+                            finished = GameFinishedMessage(
+                                type="GAME_FINISHED",
+                                game_id=room.game_id,
+                                winner_id=game.winner_id,
+                                scores={
+                                    current_player_id: current_player.score
+                                    for current_player_id, current_player
+                                    in game.players.items()
+                                },
+                            )
+                            await websocket.send_json(
+                                finished.model_dump(mode="json")
+                            )
 
                 continue
 
@@ -813,3 +932,9 @@ async def websocket_endpoint(websocket: WebSocket):
             )
         except Exception:
             pass
+
+    finally:
+        await connection_manager.disconnect(
+            player_id,
+            websocket,
+        )

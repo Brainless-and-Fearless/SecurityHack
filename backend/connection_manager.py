@@ -11,16 +11,29 @@ class ConnectionManager:
     ):
         old_websocket = self.connections.get(player_id)
 
-        if old_websocket is not None:
-            await old_websocket.close()
-
         self.connections[player_id] = websocket
         self.player_rooms[player_id] = room_id
+
+        if (
+            old_websocket is not None
+            and old_websocket is not websocket
+        ):
+            try:
+                await old_websocket.close()
+            except Exception:
+                pass
 
     async def disconnect(
         self,
         player_id,
+        websocket=None,
     ):
+        if (
+            websocket is not None
+            and self.connections.get(player_id) is not websocket
+        ):
+            return
+
         self.connections.pop(player_id, None)
         self.player_rooms.pop(player_id, None)
 
@@ -37,7 +50,7 @@ class ConnectionManager:
         try:
             await websocket.send_json(message)
         except Exception:
-            await self.disconnect(player_id)
+            await self.disconnect(player_id, websocket)
 
     async def broadcast_to_room(
         self,

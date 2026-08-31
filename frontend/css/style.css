@@ -530,6 +530,12 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
 .hud-timer.is-warn .hud-value { color: var(--level1-color); }
 .hud-timer.is-warn { border-color: rgba(251, 191, 36, 0.35); }
 
+.connection-status {
+    color: var(--warning-color, #fbbf24);
+    font-size: 13px;
+    font-weight: 600;
+}
+
 .hud-timer.is-critical { border-color: rgba(225, 29, 72, 0.5); animation: hudCriticalPulse 1s ease-in-out infinite; }
 .hud-timer.is-critical .hud-icon { background: rgba(225, 29, 72, 0.18); color: var(--danger-color); }
 .hud-timer.is-critical .hud-value { color: var(--danger-color); }

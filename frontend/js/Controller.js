@@ -11,6 +11,9 @@ export class Controller {
         this.playerResources = document.getElementById('player-resources');
         this.gameTimer = document.getElementById('game-timer');
         this.hudTimerItem = document.getElementById('hud-timer-item');
+        this.connectionStatus = document.getElementById(
+            'connection-status'
+        );
 
         this.taskModal = document.getElementById('task-modal');
         this.taskTitle = document.getElementById('task-title');
@@ -52,6 +55,7 @@ export class Controller {
         this.activeTask = null;
         this.selectedUpgradeNodeId = null;
         this.isGameFinished = false;
+        this.isResumingSession = false;
 
         this._prevResources = null;
         this._prevScore = null;
@@ -169,6 +173,10 @@ export class Controller {
         this.lobbyView.renderRoom(room);
     }
 
+    onSessionResumed() {
+        this.isResumingSession = true;
+    }
+
     onNetworkError(message) {
         this.lobbyView.showToast(
             'error',
@@ -226,6 +234,37 @@ export class Controller {
         );
 
         this.refreshSelectedNodeUpgrade();
+
+        if (
+            this.isResumingSession
+            && this.model.state.status !== 'waiting'
+        ) {
+            this.lobbyView.stopAmbientLoop?.();
+            this.lobbyView.hideAll?.();
+            this.gameScreen?.classList.remove('hidden');
+
+            if (this.playerName && this.room?.you) {
+                this.playerName.textContent = this.room.you.name;
+            }
+
+            this.isResumingSession = false;
+        }
+
+        const currentPlayerId = this.getCurrentPlayerId();
+        const resumedTask = Object.values(
+            this.model.state.tasks
+            ?? gameState.game.tasks
+            ?? {}
+        ).find(
+            (task) => task.player_id === currentPlayerId
+        );
+
+        if (
+            resumedTask
+            && this.activeTask?.id !== resumedTask.id
+        ) {
+            this.onAttackStarted({ task: resumedTask });
+        }
     }
 
     startGame() {
@@ -357,6 +396,8 @@ export class Controller {
             this.activeTask
             || this.isGameFinished
             || this.model.state.status === 'finished'
+            || this.network.connectionState === 'reconnecting'
+            || this.network.connectionState === 'disconnected'
         ) {
             return;
         }
@@ -429,6 +470,8 @@ export class Controller {
         if (
             this.isGameFinished
             || this.model.state.status === 'finished'
+            || this.network.connectionState === 'reconnecting'
+            || this.network.connectionState === 'disconnected'
             || !this.selectedUpgradeNodeId
             || this.upgradeNodeBtn?.disabled
         ) {
@@ -510,7 +553,11 @@ export class Controller {
     }
 
     submitTaskAnswer() {
-        if (!this.activeTask) {
+        if (
+            !this.activeTask
+            || this.network.connectionState === 'reconnecting'
+            || this.network.connectionState === 'disconnected'
+        ) {
             return;
         }
 
@@ -615,6 +662,13 @@ export class Controller {
     }
 
     handleCancelTask() {
+        if (
+            this.network.connectionState === 'reconnecting'
+            || this.network.connectionState === 'disconnected'
+        ) {
+            return;
+        }
+
         if (this.activeTask) {
             this.network.cancelAttack(
                 this.activeTask.id
@@ -682,6 +736,21 @@ export class Controller {
             `${winnerLine}Итоговый счёт:\n${scoreLines.join('\n')}`;
 
         this.gameFinishedPanel.classList.remove('hidden');
+    }
+
+    onConnectionStateChange(state) {
+        if (!this.connectionStatus) {
+            return;
+        }
+
+        const reconnecting = state === 'reconnecting';
+        this.connectionStatus.textContent = reconnecting
+            ? 'Переподключение...'
+            : '';
+        this.connectionStatus.classList.toggle(
+            'hidden',
+            !reconnecting
+        );
     }
 
 }

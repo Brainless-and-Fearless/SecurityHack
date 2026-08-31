@@ -79,6 +79,7 @@ class RoomCreatedMessage(BaseModel):
     room_id: str
     player_id: str
     is_host: bool
+    session_token: str
 
 
 class ErrorMessage(BaseModel):
@@ -93,6 +94,12 @@ class JoinRoomMessage(BaseModel):
     request_id: str
     room_id: str
     nickname: str
+
+
+class ResumeSessionMessage(BaseModel):
+    type: Literal["RESUME_SESSION"]
+    request_id: str
+    session_token: str
 
 
 class StartGameMessage(BaseModel):
@@ -131,6 +138,16 @@ class RoomJoinedMessage(BaseModel):
     room_id: str
     player_id: str
     is_host: bool
+    session_token: str
+
+
+class SessionResumedMessage(BaseModel):
+    type: Literal["SESSION_RESUMED"]
+    request_id: str
+    player_id: str
+    room_id: str
+    is_host: bool
+    game_id: str | None
 
 
 class GameStartedMessage(BaseModel):

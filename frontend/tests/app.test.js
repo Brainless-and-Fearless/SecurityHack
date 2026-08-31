@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
         joinRoom: vi.fn(),
         leaveRoom: vi.fn(),
         startGame: vi.fn(),
+        resumeStoredSession: vi.fn(),
     },
 
     capturedLobbyTransport: {
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     onAttackCancelled: vi.fn(),
     onNodeUpgraded: vi.fn(),
     onGameFinished: vi.fn(),
+    onConnectionStateChange: vi.fn(),
 }));
 
 vi.mock('../js/Model.js', () => ({
@@ -72,6 +74,10 @@ vi.mock('../js/Controller.js', () => ({
         onGameFinished(message) {
             mocks.onGameFinished(message);
         }
+
+        onConnectionStateChange(state) {
+            mocks.onConnectionStateChange(state);
+        }
     },
 }));
 
@@ -93,6 +99,9 @@ describe('app bootstrap', () => {
         expect(
             mocks.capturedLobbyTransport.value
         ).toBe(mocks.network);
+        expect(
+            mocks.network.resumeStoredSession
+        ).toHaveBeenCalledTimes(1);
 
         vi.unstubAllGlobals();
     });
@@ -205,6 +214,35 @@ describe('app bootstrap', () => {
         expect(
             mocks.onGameFinished
         ).toHaveBeenCalledWith(message);
+
+        vi.unstubAllGlobals();
+    });
+
+
+    test('routes connection state from Network to Controller', async () => {
+        vi.stubGlobal('document', {
+            addEventListener: vi.fn(
+                (event, callback) => {
+                    if (event === 'DOMContentLoaded') {
+                        callback();
+                    }
+                },
+            ),
+        });
+
+        await import('../js/app.js');
+
+        expect(
+            mocks.capturedNetworkHandlers.value
+                .onConnectionStateChange
+        ).toEqual(expect.any(Function));
+
+        mocks.capturedNetworkHandlers.value
+            .onConnectionStateChange('reconnecting');
+
+        expect(
+            mocks.onConnectionStateChange
+        ).toHaveBeenCalledWith('reconnecting');
 
         vi.unstubAllGlobals();
     });

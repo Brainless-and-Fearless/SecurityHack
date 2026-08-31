@@ -153,6 +153,32 @@ async def test_reconnect_replaces_old_connection():
 
 
 @pytest.mark.anyio
+async def test_stale_socket_disconnect_does_not_remove_replacement():
+    manager = ConnectionManager()
+    old_websocket = FakeWebSocket()
+    new_websocket = FakeWebSocket()
+
+    await manager.connect(
+        "player_1",
+        "room_1",
+        old_websocket,
+    )
+    await manager.connect(
+        "player_1",
+        "room_1",
+        new_websocket,
+    )
+
+    await manager.disconnect(
+        "player_1",
+        old_websocket,
+    )
+
+    assert manager.connections["player_1"] is new_websocket
+    assert manager.player_rooms["player_1"] == "room_1"
+
+
+@pytest.mark.anyio
 async def test_sending_to_unknown_player_does_nothing():
     manager = ConnectionManager()
 

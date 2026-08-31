@@ -16,7 +16,7 @@ from models import (
 # Constants
 # ---------------------------------------------------------------------------
 
-MATCH_DURATION_SECONDS = 15 * 60
+MATCH_DURATION_SECONDS = 15 + 3
 
 MAX_RESOURCES = 200.0
 

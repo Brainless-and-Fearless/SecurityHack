@@ -1405,6 +1405,92 @@ test('finished game prevents new node gameplay actions', () => {
     ).toBe(true);
 });
 
+
+test('resumed GAME_STATE restores current player active task modal', () => {
+    const elements = {
+        ...createUpgradeElements(),
+        'task-modal': {
+            classList: createTrackedClassList('hidden'),
+        },
+        'task-title': { textContent: '' },
+        'task-desc': { textContent: '' },
+        'task-answer': {
+            value: '',
+            focus: vi.fn(),
+            disabled: true,
+            classList: createTrackedClassList('hidden'),
+        },
+        'submit-task-btn': {
+            addEventListener: vi.fn(),
+            disabled: true,
+            classList: createTrackedClassList('hidden'),
+        },
+        'cancel-task-btn': {
+            addEventListener: vi.fn(),
+            textContent: '',
+        },
+    };
+    const {
+        controller,
+        model,
+    } = createAttackController(elements);
+    model.applyGameState.mockImplementation((gameId, state) => {
+        model.state.gameId = gameId;
+        model.state.status = state.status;
+        model.state.players = state.players;
+        model.state.nodes = state.nodes;
+        model.state.tasks = state.tasks;
+        model.state.remainingTimeSeconds = state.remaining_time_seconds;
+    });
+    const resumedTask = {
+        id: 'task_resume',
+        node_id: 'node_2',
+        player_id: 'player_1',
+        defence_level: 'K1',
+        template_id: 'test_k1',
+        question: 'Resumed question?',
+    };
+
+    controller.onGameState({
+        gameId: 'game_1',
+        game: {
+            status: 'running',
+            players: model.state.players,
+            nodes: model.state.nodes,
+            tasks: {
+                [resumedTask.id]: resumedTask,
+            },
+            remaining_time_seconds: 300,
+        },
+    });
+
+    expect(controller.activeTask).toEqual(resumedTask);
+    expect(elements['task-desc'].textContent).toBe(
+        'Resumed question?'
+    );
+    expect(
+        elements['task-modal'].classList.contains('hidden')
+    ).toBe(false);
+    expect(elements['task-answer'].disabled).toBe(false);
+});
+
+
+test('reconnecting state blocks gameplay actions', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        view,
+        network,
+    } = createAttackController(elements);
+    network.connectionState = 'reconnecting';
+    view.getNodeAtPoint.mockReturnValue('node_2');
+
+    controller.handleNodeClick({ clientX: 10, clientY: 10 });
+
+    expect(network.attackNode).not.toHaveBeenCalled();
+    expect(network.upgradeNode).not.toHaveBeenCalled();
+});
+
 test('leaving a room clears its preview and allows the next preview', () => {
     const nextRoom = {
         roomCode: 'NEXT01',

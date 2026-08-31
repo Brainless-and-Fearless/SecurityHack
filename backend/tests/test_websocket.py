@@ -18,6 +18,13 @@ async def get_test_game(game_id):
     return await app.state.game_repository.get_game(game_id)
 
 
+async def update_resume_test_state(game_id, player_id):
+    game = await app.state.game_repository.get_game(game_id)
+    game.remaining_time_seconds = 321
+    game.players[player_id].resources = 77
+    await app.state.game_repository.save_game(game_id, game)
+
+
 def run_final_tick(client, room_id, game_id):
     client.portal.call(
         set_game_remaining_time,
@@ -146,6 +153,8 @@ def start_two_player_websocket_attack(
         "target_node_id": target_node_id,
         "host_player_id": host_player_id,
         "player_id": player_joined["player_id"],
+        "host_session_token": host_created["session_token"],
+        "player_session_token": player_joined["session_token"],
     }
 
 
@@ -196,6 +205,8 @@ def start_two_player_websocket_game(host_ws, player_ws):
         "game": host_game_state["game"],
         "host_player_id": host_created["player_id"],
         "player_id": player_joined["player_id"],
+        "host_session_token": host_created["session_token"],
+        "player_session_token": player_joined["session_token"],
     }
 
 
@@ -1509,3 +1520,251 @@ def test_active_task_cannot_mutate_game_after_timeout(message_type):
                     ].score == score_before
         finally:
             game_loop_manager.start = original_start
+
+
+def test_create_and_join_issue_private_session_tokens():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            host_ws.send_json({
+                "type": "CREATE_ROOM",
+                "request_id": "req_session_create",
+                "nickname": "Alice",
+            })
+            host_room_state = host_ws.receive_json()
+            host_created = host_ws.receive_json()
+
+            assert host_created["session_token"]
+            assert "session_token" not in host_room_state
+            assert "session_token" not in host_room_state["you"]
+
+            with client.websocket_connect("/ws") as player_ws:
+                player_ws.send_json({
+                    "type": "JOIN_ROOM",
+                    "request_id": "req_session_join",
+                    "room_id": host_created["room_id"],
+                    "nickname": "Bob",
+                })
+                player_room_state = player_ws.receive_json()
+                player_joined = player_ws.receive_json()
+                host_update = host_ws.receive_json()
+
+                assert player_joined["session_token"]
+                assert player_joined["session_token"] != (
+                    host_created["session_token"]
+                )
+                assert "session_token" not in player_room_state
+                assert "session_token" not in host_update
+
+
+def test_resume_running_game_preserves_identity_and_replays_snapshots():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+                    client.portal.call(
+                        update_resume_test_state,
+                        started["game_id"],
+                        started["host_player_id"],
+                    )
+
+                    with client.websocket_connect("/ws") as resumed_ws:
+                        resumed_ws.send_json({
+                            "type": "RESUME_SESSION",
+                            "request_id": "req_resume_running",
+                            "session_token": started[
+                                "host_session_token"
+                            ],
+                        })
+
+                        resumed = resumed_ws.receive_json()
+                        room_state = resumed_ws.receive_json()
+                        game_state = resumed_ws.receive_json()
+
+                        assert resumed == {
+                            "type": "SESSION_RESUMED",
+                            "request_id": "req_resume_running",
+                            "player_id": started["host_player_id"],
+                            "room_id": started["room_id"],
+                            "is_host": True,
+                            "game_id": started["game_id"],
+                        }
+                        assert room_state["type"] == "ROOM_STATE"
+                        assert room_state["you"]["id"] == (
+                            started["host_player_id"]
+                        )
+                        assert game_state["type"] == "GAME_STATE"
+                        assert game_state["game"][
+                            "remaining_time_seconds"
+                        ] == 321
+                        assert game_state["game"]["players"][
+                            started["host_player_id"]
+                        ]["resources"] == 77
+
+                        room = client.portal.call(
+                            app.state.room_repository.get_room,
+                            started["room_id"],
+                        )
+                        assert room.player_ids.count(
+                            started["host_player_id"]
+                        ) == 1
+                        assert started["host_player_id"] in (
+                            app.state.connection_manager.connections
+                        )
+                        assert app.state.connection_manager.player_rooms[
+                            started["host_player_id"]
+                        ] == started["room_id"]
+
+                    with client.websocket_connect("/ws") as duplicate_ws:
+                        duplicate_ws.send_json({
+                            "type": "RESUME_SESSION",
+                            "request_id": "req_resume_duplicate",
+                            "session_token": started[
+                                "host_session_token"
+                            ],
+                        })
+                        assert duplicate_ws.receive_json()["type"] == (
+                            "SESSION_RESUMED"
+                        )
+                        duplicate_ws.receive_json()  # ROOM_STATE
+                        duplicate_ws.receive_json()  # GAME_STATE
+
+                        room = client.portal.call(
+                            app.state.room_repository.get_room,
+                            started["room_id"],
+                        )
+                        assert room.player_ids.count(
+                            started["host_player_id"]
+                        ) == 1
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_invalid_session_is_rejected_without_player_binding():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json({
+                "type": "RESUME_SESSION",
+                "request_id": "req_invalid_session",
+                "session_token": "not-a-valid-token",
+            })
+
+            response = websocket.receive_json()
+
+            assert response["type"] == "ERROR"
+            assert response["request_id"] == "req_invalid_session"
+            assert response["code"] == "INVALID_SESSION"
+            assert app.state.connection_manager.connections == {}
+
+
+def test_finished_game_resume_replays_persisted_result():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+                    run_final_tick(
+                        client,
+                        started["room_id"],
+                        started["game_id"],
+                    )
+
+                    with client.websocket_connect("/ws") as resumed_ws:
+                        resumed_ws.send_json({
+                            "type": "RESUME_SESSION",
+                            "request_id": "req_resume_finished",
+                            "session_token": started[
+                                "host_session_token"
+                            ],
+                        })
+
+                        assert resumed_ws.receive_json()["type"] == (
+                            "SESSION_RESUMED"
+                        )
+                        assert resumed_ws.receive_json()["type"] == (
+                            "ROOM_STATE"
+                        )
+                        game_state = resumed_ws.receive_json()
+                        finished = resumed_ws.receive_json()
+
+                        assert game_state["type"] == "GAME_STATE"
+                        assert game_state["game"]["status"] == "finished"
+                        assert finished == {
+                            "type": "GAME_FINISHED",
+                            "game_id": started["game_id"],
+                            "winner_id": game_state["game"]["winner_id"],
+                            "scores": {
+                                player_id: player["score"]
+                                for player_id, player
+                                in game_state["game"]["players"].items()
+                            },
+                        }
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_active_task_survives_resume_and_can_be_answered():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        original_task_manager = app.state.task_manager
+        original_loop_task_manager = game_loop_manager.task_manager
+        test_task_manager = create_test_websocket_task_manager()
+        game_loop_manager.start = Mock()
+        game_loop_manager.task_manager = test_task_manager
+        app.state.task_manager = test_task_manager
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    attack = start_two_player_websocket_attack(
+                        host_ws,
+                        player_ws,
+                    )
+                    task_id = attack["task"]["id"]
+
+                    with client.websocket_connect("/ws") as resumed_ws:
+                        resumed_ws.send_json({
+                            "type": "RESUME_SESSION",
+                            "request_id": "req_resume_task",
+                            "session_token": attack[
+                                "host_session_token"
+                            ],
+                        })
+                        resumed_ws.receive_json()  # SESSION_RESUMED
+                        resumed_ws.receive_json()  # ROOM_STATE
+                        game_state = resumed_ws.receive_json()
+
+                        assert task_id in game_state["game"]["tasks"]
+                        assert task_id in app.state.task_manager.tasks
+
+                        resumed_ws.send_json({
+                            "type": "ANSWER_TASK",
+                            "request_id": "req_answer_resumed",
+                            "task_id": task_id,
+                            "answer": "answer",
+                        })
+                        resolved = resumed_ws.receive_json()
+                        updated = resumed_ws.receive_json()
+
+                        assert resolved["type"] == "ATTACK_RESOLVED"
+                        assert resolved["success"] is True
+                        assert task_id not in updated["game"]["tasks"]
+        finally:
+            game_loop_manager.start = original_start
+            game_loop_manager.task_manager = original_loop_task_manager
+            app.state.task_manager = original_task_manager

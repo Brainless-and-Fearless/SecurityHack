@@ -26,6 +26,8 @@ from network_models import (
     NodeUpgradedMessage,
     RoomCreatedMessage,
     RoomJoinedMessage,
+    ResumeSessionMessage,
+    SessionResumedMessage,
     RoomStateMessage,
     StartGameMessage,
     UpgradeNodeMessage,
@@ -69,6 +71,7 @@ def test_room_created_message_accepts_valid_data():
         room_id="room_1",
         player_id="player_1",
         is_host=True,
+        session_token="private-token",
     )
 
     assert message.type == "ROOM_CREATED"
@@ -76,6 +79,7 @@ def test_room_created_message_accepts_valid_data():
     assert message.room_id == "room_1"
     assert message.player_id == "player_1"
     assert message.is_host is True    
+    assert message.session_token == "private-token"
 
 
 def test_room_created_message_rejects_wrong_type():
@@ -210,6 +214,7 @@ def test_room_joined_message_accepts_valid_data():
         room_id="room_1",
         player_id="player_2",
         is_host=False,
+        session_token="private-token",
     )
 
     assert message.type == "ROOM_JOINED"
@@ -217,6 +222,29 @@ def test_room_joined_message_accepts_valid_data():
     assert message.room_id == "room_1"
     assert message.player_id == "player_2"
     assert message.is_host is False    
+    assert message.session_token == "private-token"
+
+
+def test_resume_session_messages_accept_private_session_contract():
+    request = ResumeSessionMessage(
+        type="RESUME_SESSION",
+        request_id="req_resume",
+        session_token="private-token",
+    )
+    response = SessionResumedMessage(
+        type="SESSION_RESUMED",
+        request_id="req_resume",
+        player_id="player_1",
+        room_id="ABC234",
+        is_host=True,
+        game_id="game_1",
+    )
+
+    assert request.session_token == "private-token"
+    assert response.player_id == "player_1"
+    assert response.room_id == "ABC234"
+    assert response.is_host is True
+    assert response.game_id == "game_1"
 
 
 def test_game_started_message_accepts_valid_data():

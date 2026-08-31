@@ -38,6 +38,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         onGameFinished: (message) =>
             controller.onGameFinished(message),
+
+        onConnectionStateChange: (state) =>
+            controller.onConnectionStateChange(state),
+
+        onSessionResumed: (message) =>
+            controller.onSessionResumed(message),
     };
 
     const network = new Network(handlers);
@@ -48,6 +54,8 @@ document.addEventListener('DOMContentLoaded', () => {
         lobbyView,
         network,
     );
+
+    network.resumeStoredSession?.();
 
     console.log(
         'Терминал инициализирован. ' +
