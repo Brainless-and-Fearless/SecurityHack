@@ -23,6 +23,7 @@ from game_logic import (
     resolve_attack,
     upgrade_node,
 )
+from models import GameStatus
 
 
 from room_id import generate_unique_room_id
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
         game_repository,
         connection_manager,
         room_repository,
+        task_manager=task_manager,
     )
 
     app.state.redis = redis_client
@@ -702,6 +704,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     task_manager = websocket.app.state.task_manager
 
                     try:
+                        if game.status != GameStatus.RUNNING:
+                            raise ValueError("GAME_NOT_RUNNING")
+
                         task = task_manager.get_task(
                             answer_message.task_id
                         )

@@ -149,6 +149,10 @@ export class Network {
                 this.handlers.onNodeUpgraded?.(data);
                 break;
 
+            case 'GAME_FINISHED':
+                this.handlers.onGameFinished?.(data);
+                break;
+
             case 'ERROR':
                 this.handlers.onError && this.handlers.onError(data.message || 'Неизвестная ошибка сервера');
                 break;

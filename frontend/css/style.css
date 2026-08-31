@@ -550,7 +550,8 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
 
 /* Модальное окно задачи */
 #task-modal,
-#node-upgrade-panel {
+#node-upgrade-panel,
+#game-finished-panel {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -560,4 +561,8 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
     flex-direction: column;
     gap: 16px;
     min-width: 300px;
+}
+
+#game-finished-details {
+    white-space: pre-line;
 }

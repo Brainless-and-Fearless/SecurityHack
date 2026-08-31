@@ -3,6 +3,7 @@ import logging
 
 from game_logic import tick_game
 from models import GameStatus
+from network_models import GameFinishedMessage
 
 
 GAME_TICK_INTERVAL_SECONDS = 1.0
@@ -16,11 +17,13 @@ class GameLoopManager:
         game_repository,
         connection_manager,
         room_repository=None,
+        task_manager=None,
         sleep=asyncio.sleep,
     ):
         self.game_repository = game_repository
         self.connection_manager = connection_manager
         self.room_repository = room_repository
+        self.task_manager = task_manager
         self.sleep = sleep
         self.tasks: dict[str, asyncio.Task] = {}
         self.locks: dict[str, asyncio.Lock] = {}
@@ -113,12 +116,22 @@ class GameLoopManager:
             ):
                 return False
 
+            active_task_ids = list(game.tasks)
+
             tick_game(game)
 
             await self.game_repository.save_game(
                 game_id,
                 game,
             )
+
+            if (
+                game.status == GameStatus.FINISHED
+                and self.task_manager is not None
+            ):
+                for task_id in active_task_ids:
+                    if task_id in self.task_manager.tasks:
+                        self.task_manager.remove_task(task_id)
 
             await self.connection_manager.broadcast_to_room(
                 room_id,
@@ -128,6 +141,22 @@ class GameLoopManager:
                     "game": game.model_dump(mode="json"),
                 },
             )
+
+            if game.status == GameStatus.FINISHED:
+                finished_message = GameFinishedMessage(
+                    type="GAME_FINISHED",
+                    game_id=game_id,
+                    winner_id=game.winner_id,
+                    scores={
+                        player_id: player.score
+                        for player_id, player in game.players.items()
+                    },
+                )
+
+                await self.connection_manager.broadcast_to_room(
+                    room_id,
+                    finished_message.model_dump(mode="json"),
+                )
 
             return game.status == GameStatus.RUNNING
 

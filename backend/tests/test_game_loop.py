@@ -5,7 +5,15 @@ import pytest
 
 from connection_manager import ConnectionManager
 from game_logic import RESOURCE_INCOME_PER_NODE
-from models import GameState, GameStatus, Node, Player
+from models import (
+    DefenceLevel,
+    GameState,
+    GameStatus,
+    Node,
+    Player,
+    Task,
+)
+from task_manager import TaskManager
 
 
 class FakeGameRepository:
@@ -48,6 +56,32 @@ class FailOnceGameRepository(FakeGameRepository):
         return await super().get_game(game_id)
 
 
+class FailFirstSaveGameRepository(FakeGameRepository):
+    def __init__(self, game):
+        super().__init__(game)
+        self.save_attempts = 0
+
+    async def save_game(self, game_id, game):
+        self.events.append("save")
+        self.save_attempts += 1
+
+        if self.save_attempts == 1:
+            raise RuntimeError("transient final save failure")
+
+        self.save_count += 1
+        self.game = game.model_copy(deep=True)
+
+
+class RecordingTaskManager(TaskManager):
+    def __init__(self, events):
+        super().__init__([])
+        self.events = events
+
+    def remove_task(self, task_id):
+        self.events.append("task_cleanup")
+        super().remove_task(task_id)
+
+
 class FakeWebSocket:
     def __init__(self):
         self.messages = []
@@ -63,6 +97,16 @@ class RecordingConnectionManager(ConnectionManager):
 
     async def broadcast_to_room(self, room_id, message):
         self.events.append("broadcast")
+        await super().broadcast_to_room(room_id, message)
+
+
+class FinishRecordingConnectionManager(ConnectionManager):
+    def __init__(self, events):
+        super().__init__()
+        self.events = events
+
+    async def broadcast_to_room(self, room_id, message):
+        self.events.append(f"broadcast:{message['type']}")
         await super().broadcast_to_room(room_id, message)
 
 
@@ -128,6 +172,7 @@ def create_manager(
     connections,
     sleep=None,
     room_repository=None,
+    task_manager=None,
 ):
     module = importlib.import_module("game_loop")
 
@@ -136,6 +181,8 @@ def create_manager(
         kwargs["sleep"] = sleep
     if room_repository is not None:
         kwargs["room_repository"] = room_repository
+    if task_manager is not None:
+        kwargs["task_manager"] = task_manager
 
     return module.GameLoopManager(
         repository,
@@ -283,6 +330,131 @@ async def test_finished_game_stops_and_cleans_registry():
     assert repository.save_count == 1
     assert len(sleep.waiters) == 1
     assert manager.tasks == {}
+
+
+@pytest.mark.anyio
+async def test_final_tick_saves_then_broadcasts_state_and_finish_once():
+    game = create_running_game(remaining_time=1)
+    game.players["alice"].score = 12
+    game.players["bob"].score = 7
+    repository = FakeGameRepository(game)
+    connections = FinishRecordingConnectionManager(repository.events)
+    alice_socket = FakeWebSocket()
+    bob_socket = FakeWebSocket()
+    connections.connections = {
+        "alice": alice_socket,
+        "bob": bob_socket,
+    }
+    connections.player_rooms = {
+        "alice": "room_1",
+        "bob": "room_1",
+    }
+    sleep = ControlledSleep()
+    manager = create_manager(
+        repository,
+        connections,
+        sleep=sleep,
+    )
+
+    task = manager.start("room_1", "game_1")
+    await sleep.wait_for_call(1)
+    sleep.release(0)
+    await task
+
+    assert repository.events == [
+        "save",
+        "broadcast:GAME_STATE",
+        "broadcast:GAME_FINISHED",
+    ]
+    assert alice_socket.messages == bob_socket.messages
+    assert [
+        message["type"]
+        for message in alice_socket.messages
+    ] == ["GAME_STATE", "GAME_FINISHED"]
+    assert alice_socket.messages[0]["game"] == (
+        repository.game.model_dump(mode="json")
+    )
+    assert alice_socket.messages[1] == {
+        "type": "GAME_FINISHED",
+        "game_id": "game_1",
+        "winner_id": "alice",
+        "scores": {
+            "alice": 12,
+            "bob": 7,
+            "observer": 0,
+        },
+    }
+    assert repository.game.status == GameStatus.FINISHED
+    assert repository.game.remaining_time_seconds == 0
+    assert manager.tasks == {}
+    assert len(sleep.waiters) == 1
+
+
+@pytest.mark.anyio
+async def test_failed_final_save_keeps_runtime_task_until_successful_retry():
+    game = create_running_game(remaining_time=1)
+    active_task = Task(
+        id="task_1",
+        node_id="node_bob",
+        player_id="alice",
+        defence_level=DefenceLevel.K1,
+        question="Question",
+    )
+    game.tasks[active_task.id] = active_task
+    game.nodes[active_task.node_id].active_attack_player_id = (
+        active_task.player_id
+    )
+    repository = FailFirstSaveGameRepository(game)
+    connections = FinishRecordingConnectionManager(repository.events)
+    task_manager = RecordingTaskManager(repository.events)
+    task_manager.tasks[active_task.id] = active_task
+    sleep = ControlledSleep()
+    manager = create_manager(
+        repository,
+        connections,
+        sleep=sleep,
+        task_manager=task_manager,
+    )
+    runtime_task = manager.start("room_1", "game_1")
+
+    try:
+        await sleep.wait_for_call(1)
+        sleep.release(0)
+        await sleep.wait_for_call(2)
+
+        assert runtime_task.done() is False
+        assert manager.tasks["game_1"] is runtime_task
+        assert repository.game.status == GameStatus.RUNNING
+        assert repository.game.remaining_time_seconds == 1
+        assert active_task.id in repository.game.tasks
+        assert active_task.id in task_manager.tasks
+        assert not any(
+            event == "broadcast:GAME_FINISHED"
+            for event in repository.events
+        )
+
+        sleep.release(1)
+        await runtime_task
+
+        assert repository.game.status == GameStatus.FINISHED
+        assert repository.game.tasks == {}
+        assert repository.game.nodes[
+            active_task.node_id
+        ].active_attack_player_id is None
+        assert active_task.id not in task_manager.tasks
+        assert repository.events == [
+            "save",
+            "save",
+            "task_cleanup",
+            "broadcast:GAME_STATE",
+            "broadcast:GAME_FINISHED",
+        ]
+        assert repository.events.count(
+            "broadcast:GAME_FINISHED"
+        ) == 1
+        assert manager.tasks == {}
+    finally:
+        await manager.stop_all()
 
 
 @pytest.mark.anyio

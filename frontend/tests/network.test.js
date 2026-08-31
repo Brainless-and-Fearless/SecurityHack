@@ -300,6 +300,31 @@ test('forwards NODE_UPGRADED to onNodeUpgraded handler', () => {
 });
 
 
+test('forwards GAME_FINISHED to onGameFinished handler', () => {
+    const onGameFinished = vi.fn();
+    const network = new Network(
+        { onGameFinished },
+        'ws://localhost/ws'
+    );
+    const message = {
+        type: 'GAME_FINISHED',
+        game_id: 'game_1',
+        winner_id: 'player_1',
+        scores: {
+            player_1: 15,
+            player_2: 10,
+        },
+    };
+
+    network._handleMessage({
+        data: JSON.stringify(message),
+    });
+
+    expect(onGameFinished).toHaveBeenCalledTimes(1);
+    expect(onGameFinished).toHaveBeenCalledWith(message);
+});
+
+
 function createConnectedNetwork(onError) {
     const sockets = [];
 

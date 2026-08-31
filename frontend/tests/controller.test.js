@@ -964,6 +964,45 @@ function createUpgradeElements() {
 }
 
 
+function createGameFinishedElements() {
+    return {
+        ...createUpgradeElements(),
+        'task-modal': {
+            classList: createTrackedClassList(),
+        },
+        'task-title': {
+            textContent: '',
+        },
+        'task-desc': {
+            textContent: '',
+        },
+        'task-answer': {
+            value: 'answer',
+            disabled: false,
+            classList: createTrackedClassList(),
+        },
+        'submit-task-btn': {
+            addEventListener: vi.fn(),
+            disabled: false,
+            classList: createTrackedClassList(),
+        },
+        'cancel-task-btn': {
+            addEventListener: vi.fn(),
+            textContent: 'Прервать',
+        },
+        'game-finished-panel': {
+            classList: createTrackedClassList('hidden'),
+        },
+        'game-finished-title': {
+            textContent: '',
+        },
+        'game-finished-details': {
+            textContent: '',
+        },
+    };
+}
+
+
 test('clicking an owned node opens upgrade action without attacking', () => {
     const elements = createUpgradeElements();
     const {
@@ -1239,6 +1278,127 @@ test('authoritative ownership loss closes the selected upgrade panel', () => {
         },
     });
 
+    expect(controller.selectedUpgradeNodeId).toBeNull();
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(true);
+});
+
+
+test.each([
+    {
+        name: 'current player wins',
+        winnerId: 'player_1',
+        expectedTitle: 'Победа',
+    },
+    {
+        name: 'another player wins',
+        winnerId: 'player_2',
+        expectedTitle: 'Поражение',
+    },
+    {
+        name: 'scores are tied',
+        winnerId: null,
+        expectedTitle: 'Ничья',
+    },
+])('GAME_FINISHED shows authoritative result when $name', ({
+    winnerId,
+    expectedTitle,
+}) => {
+    const elements = createGameFinishedElements();
+    const {
+        controller,
+        model,
+    } = createAttackController(elements);
+    model.state.players.player_2 = {
+        id: 'player_2',
+        nickname: 'Bob',
+        score: 7,
+        resources: 20,
+        owned_node_ids: ['node_2'],
+    };
+
+    controller.onGameFinished({
+        type: 'GAME_FINISHED',
+        game_id: 'game_1',
+        winner_id: winnerId,
+        scores: {
+            player_1: 12,
+            player_2: 7,
+        },
+    });
+
+    expect(
+        elements['game-finished-panel'].classList.contains('hidden')
+    ).toBe(false);
+    expect(
+        elements['game-finished-title'].textContent
+    ).toBe(expectedTitle);
+    expect(
+        elements['game-finished-details'].textContent
+    ).toContain('Alice: 12');
+    expect(
+        elements['game-finished-details'].textContent
+    ).toContain('Bob: 7');
+});
+
+
+test('GAME_FINISHED closes active task and upgrade UI', () => {
+    const elements = createGameFinishedElements();
+    const {
+        controller,
+    } = createAttackController(elements);
+    controller.activeTask = { id: 'task_1' };
+    controller.selectedUpgradeNodeId = 'node_1';
+    elements['node-upgrade-panel'].classList.remove('hidden');
+
+    controller.onGameFinished({
+        type: 'GAME_FINISHED',
+        game_id: 'game_1',
+        winner_id: null,
+        scores: {
+            player_1: 10,
+            player_2: 10,
+        },
+    });
+
+    expect(controller.activeTask).toBeNull();
+    expect(controller.selectedUpgradeNodeId).toBeNull();
+    expect(
+        elements['task-modal'].classList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(true);
+});
+
+
+test('finished game prevents new node gameplay actions', () => {
+    const elements = createGameFinishedElements();
+    const {
+        controller,
+        view,
+        network,
+    } = createAttackController(elements);
+    controller.onGameFinished({
+        type: 'GAME_FINISHED',
+        game_id: 'game_1',
+        winner_id: 'player_2',
+        scores: {
+            player_1: 5,
+            player_2: 10,
+        },
+    });
+
+    view.getNodeAtPoint
+        .mockReturnValueOnce('node_1')
+        .mockReturnValueOnce('node_2');
+
+    controller.handleNodeClick({ clientX: 10, clientY: 10 });
+    controller.handleNodeClick({ clientX: 20, clientY: 20 });
+
+    expect(network.attackNode).not.toHaveBeenCalled();
+    expect(network.upgradeNode).not.toHaveBeenCalled();
     expect(controller.selectedUpgradeNodeId).toBeNull();
     expect(
         elements['node-upgrade-panel'].classList.contains('hidden')

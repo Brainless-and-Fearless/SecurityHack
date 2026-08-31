@@ -39,8 +39,19 @@ export class Controller {
             'close-node-upgrade-btn'
         );
 
+        this.gameFinishedPanel = document.getElementById(
+            'game-finished-panel'
+        );
+        this.gameFinishedTitle = document.getElementById(
+            'game-finished-title'
+        );
+        this.gameFinishedDetails = document.getElementById(
+            'game-finished-details'
+        );
+
         this.activeTask = null;
         this.selectedUpgradeNodeId = null;
+        this.isGameFinished = false;
 
         this._prevResources = null;
         this._prevScore = null;
@@ -342,7 +353,11 @@ export class Controller {
     }
 
     handleNodeClick(event) {
-        if (this.activeTask) {
+        if (
+            this.activeTask
+            || this.isGameFinished
+            || this.model.state.status === 'finished'
+        ) {
             return;
         }
 
@@ -412,7 +427,9 @@ export class Controller {
 
     handleUpgradeNode() {
         if (
-            !this.selectedUpgradeNodeId
+            this.isGameFinished
+            || this.model.state.status === 'finished'
+            || !this.selectedUpgradeNodeId
             || this.upgradeNodeBtn?.disabled
         ) {
             return;
@@ -462,6 +479,10 @@ export class Controller {
     }
 
     onAttackStarted(message) {
+        if (this.isGameFinished) {
+            return;
+        }
+
         const task = message.task;
 
         this.activeTask = task;
@@ -625,6 +646,42 @@ export class Controller {
         );
 
         this.activeTask = null;
+    }
+
+    onGameFinished(message) {
+        this.isGameFinished = true;
+
+        this.closeTaskModal();
+        this.closeNodeUpgradePanel();
+
+        const currentPlayerId = this.getCurrentPlayerId();
+
+        if (message.winner_id === null) {
+            this.gameFinishedTitle.textContent = 'Ничья';
+        } else if (message.winner_id === currentPlayerId) {
+            this.gameFinishedTitle.textContent = 'Победа';
+        } else {
+            this.gameFinishedTitle.textContent = 'Поражение';
+        }
+
+        const scoreLines = Object.entries(message.scores)
+            .map(([playerId, score]) => {
+                const player = this.model.state.players[playerId];
+                const nickname = player?.nickname ?? playerId;
+                return `${nickname}: ${score}`;
+            });
+
+        const winner = message.winner_id
+            ? this.model.state.players[message.winner_id]
+            : null;
+        const winnerLine = winner
+            ? `Победитель: ${winner.nickname}\n`
+            : '';
+
+        this.gameFinishedDetails.textContent =
+            `${winnerLine}Итоговый счёт:\n${scoreLines.join('\n')}`;
+
+        this.gameFinishedPanel.classList.remove('hidden');
     }
 
 }

@@ -143,29 +143,42 @@ def finish_game(game: GameState) -> Optional[str]:
     Returns None when the game ends in a draw.
     """
 
+    if game.status == GameStatus.FINISHED:
+        return game.winner_id
+
     if game.status != GameStatus.RUNNING:
         raise ValueError("Only a running game can be finished.")
 
+    if not game.players:
+        winner_id = None
+    else:
+        highest_score = max(
+            player.score
+            for player in game.players.values()
+        )
+
+        leaders = [
+            player
+            for player in game.players.values()
+            if player.score == highest_score
+        ]
+
+        winner_id = (
+            leaders[0].id
+            if len(leaders) == 1
+            else None
+        )
+
+    for node in game.nodes.values():
+        node.active_attack_player_id = None
+
+    game.tasks.clear()
+
+    game.winner_id = winner_id
+    game.is_draw = winner_id is None
     game.status = GameStatus.FINISHED
 
-    if not game.players:
-        return None
-
-    highest_score = max(
-        player.score
-        for player in game.players.values()
-    )
-
-    leaders = [
-        player
-        for player in game.players.values()
-        if player.score == highest_score
-    ]
-
-    if len(leaders) != 1:
-        return None
-
-    return leaders[0].id
+    return winner_id
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +292,9 @@ def resolve_attack(
     Returns the score change applied to the attacker.
     """
 
+    if game.status != GameStatus.RUNNING:
+        raise ValueError("GAME_NOT_RUNNING")
+
     task = game.tasks.get(task_id)
 
     if task is None:
@@ -338,6 +354,9 @@ def cancel_attack(
     task_manager,
 ) -> None:
     """Cancel an owned active attack without applying rewards."""
+
+    if game.status != GameStatus.RUNNING:
+        raise ValueError("GAME_NOT_RUNNING")
 
     task = game.tasks.get(task_id)
 

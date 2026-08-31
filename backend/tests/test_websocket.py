@@ -1,10 +1,34 @@
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 from network_models import RoomStateMessage
 from main import app
 from task_manager import TaskManager
-from models import DefenceLevel, TaskTemplate
+from models import DefenceLevel, GameStatus, TaskTemplate
+
+
+async def set_game_remaining_time(game_id, remaining_time_seconds):
+    game = await app.state.game_repository.get_game(game_id)
+    game.remaining_time_seconds = remaining_time_seconds
+    await app.state.game_repository.save_game(game_id, game)
+
+
+async def get_test_game(game_id):
+    return await app.state.game_repository.get_game(game_id)
+
+
+def run_final_tick(client, room_id, game_id):
+    client.portal.call(
+        set_game_remaining_time,
+        game_id,
+        1,
+    )
+    return client.portal.call(
+        app.state.game_loop_manager._tick_once,
+        room_id,
+        game_id,
+    )
 
 def create_test_websocket_task_manager():
     return TaskManager(
@@ -116,6 +140,8 @@ def start_two_player_websocket_attack(
         assert player_game_state["type"] == "GAME_STATE"
 
     return {
+        "room_id": host_created["room_id"],
+        "game_id": host_game_state["game_id"],
         "task": attack_started["task"],
         "target_node_id": target_node_id,
         "host_player_id": host_player_id,
@@ -1336,5 +1362,150 @@ def test_enemy_spawn_is_protected_and_normal_attack_still_starts():
                         task["node_id"] != alice_spawn_id
                         for task in updated_game["tasks"].values()
                     )
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_gameplay_requests_after_finish_are_rejected():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+
+                    should_continue = run_final_tick(
+                        client,
+                        started["room_id"],
+                        started["game_id"],
+                    )
+
+                    assert should_continue is False
+
+                    host_player_id = started["host_player_id"]
+                    own_node_id = started["game"]["players"][
+                        host_player_id
+                    ]["owned_node_ids"][0]
+                    enemy_node_id = started["game"]["players"][
+                        started["player_id"]
+                    ]["owned_node_ids"][0]
+                    attack_request = {
+                        "type": "ATTACK_NODE",
+                        "request_id": "req_attack_after_finish",
+                        "node_id": enemy_node_id,
+                    }
+                    host_ws.send_json(attack_request)
+
+                    final_state = host_ws.receive_json()
+                    finished = host_ws.receive_json()
+
+                    assert final_state["type"] == "GAME_STATE"
+                    assert final_state["game"]["status"] == "finished"
+                    assert finished["type"] == "GAME_FINISHED"
+
+                    attack_response = host_ws.receive_json()
+                    player_ws.receive_json()  # final GAME_STATE
+                    player_ws.receive_json()  # GAME_FINISHED
+                    assert attack_response["type"] == "ERROR"
+                    assert attack_response["request_id"] == (
+                        attack_request["request_id"]
+                    )
+                    assert attack_response["code"] == "GAME_NOT_RUNNING"
+
+                    upgrade_request = {
+                        "type": "UPGRADE_NODE",
+                        "request_id": "req_upgrade_after_finish",
+                        "node_id": own_node_id,
+                    }
+                    host_ws.send_json(upgrade_request)
+                    upgrade_response = host_ws.receive_json()
+                    assert upgrade_response["type"] == "ERROR"
+                    assert upgrade_response["request_id"] == (
+                        upgrade_request["request_id"]
+                    )
+                    assert upgrade_response["code"] == "GAME_NOT_RUNNING"
+
+                    persisted = client.portal.call(
+                        get_test_game,
+                        started["game_id"],
+                    )
+                    assert persisted.status == GameStatus.FINISHED
+                    assert persisted.model_dump(mode="json") == (
+                        final_state["game"]
+                    )
+        finally:
+            game_loop_manager.start = original_start
+
+
+@pytest.mark.parametrize(
+    "message_type",
+    ["ANSWER_TASK", "CANCEL_ATTACK"],
+)
+def test_active_task_cannot_mutate_game_after_timeout(message_type):
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    attack = start_two_player_websocket_attack(
+                        host_ws,
+                        player_ws,
+                    )
+                    score_before = client.portal.call(
+                        get_test_game,
+                        attack["game_id"],
+                    ).players[attack["host_player_id"]].score
+
+                    should_continue = run_final_tick(
+                        client,
+                        attack["room_id"],
+                        attack["game_id"],
+                    )
+                    assert should_continue is False
+
+                    request = {
+                        "type": message_type,
+                        "request_id": f"req_{message_type.lower()}_after_finish",
+                        "task_id": attack["task"]["id"],
+                    }
+                    if message_type == "ANSWER_TASK":
+                        request["answer"] = "answer"
+                    host_ws.send_json(request)
+
+                    final_state = host_ws.receive_json()
+                    finished = host_ws.receive_json()
+
+                    assert final_state["type"] == "GAME_STATE"
+                    assert finished["type"] == "GAME_FINISHED"
+
+                    response = host_ws.receive_json()
+                    player_ws.receive_json()  # final GAME_STATE
+                    player_ws.receive_json()  # GAME_FINISHED
+                    assert final_state["game"]["tasks"] == {}
+                    assert final_state["game"]["nodes"][
+                        attack["target_node_id"]
+                    ]["active_attack_player_id"] is None
+
+                    assert response["type"] == "ERROR"
+                    assert response["code"] == "GAME_NOT_RUNNING"
+
+                    persisted = client.portal.call(
+                        get_test_game,
+                        attack["game_id"],
+                    )
+                    assert persisted.status == GameStatus.FINISHED
+                    assert persisted.tasks == {}
+                    assert persisted.players[
+                        attack["host_player_id"]
+                    ].score == score_before
         finally:
             game_loop_manager.start = original_start

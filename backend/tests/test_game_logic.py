@@ -1025,10 +1025,13 @@ def test_game_winner_is_player_with_highest_score():
     game.players["player_1"].score = 100
     game.players["player_2"].score = 50
 
-    for _ in range(900):
-        tick_game(game)
+    game.remaining_time_seconds = 1
+    winner_id = tick_game(game)
 
     assert game.status == GameStatus.FINISHED
+    assert winner_id == "player_1"
+    assert game.winner_id == "player_1"
+    assert game.is_draw is False
 
 
 def test_game_can_end_in_a_draw():
@@ -1037,10 +1040,72 @@ def test_game_can_end_in_a_draw():
     game.players["player_1"].score = 100
     game.players["player_2"].score = 100
 
-    for _ in range(900):
-        tick_game(game)
+    game.remaining_time_seconds = 1
+    winner_id = tick_game(game)
 
     assert game.status == GameStatus.FINISHED
+    assert winner_id is None
+    assert game.winner_id is None
+    assert game.is_draw is True
+
+
+def test_finished_result_is_stable_when_finish_is_evaluated_again():
+    game = prepare_two_player_game()
+    game.players["player_1"].score = 100
+    game.players["player_2"].score = 50
+    game.remaining_time_seconds = 1
+
+    first_winner_id = tick_game(game)
+    scores_after_finish = {
+        player_id: player.score
+        for player_id, player in game.players.items()
+    }
+
+    second_winner_id = game_logic.finish_game(game)
+
+    assert first_winner_id == "player_1"
+    assert second_winner_id == "player_1"
+    assert game.winner_id == "player_1"
+    assert game.is_draw is False
+    assert {
+        player_id: player.score
+        for player_id, player in game.players.items()
+    } == scores_after_finish
+
+
+def test_finish_cleans_game_state_without_touching_runtime_task_store():
+    game = prepare_two_player_game()
+    task_manager = create_test_task_manager()
+    target_node_id = next(
+        node_id
+        for node_id in game.players["player_2"].owned_node_ids
+        if node_id != game.players["player_2"].spawn_node_id
+    )
+    task = start_test_attack(
+        game,
+        "player_1",
+        target_node_id,
+        task_manager,
+    )
+    target_node = game.nodes[target_node_id]
+    owner_before = target_node.owner_id
+    scores_before = {
+        player_id: player.score
+        for player_id, player in game.players.items()
+    }
+    game.remaining_time_seconds = 1
+
+    tick_game(game)
+
+    assert game.status == GameStatus.FINISHED
+    assert game.tasks == {}
+    assert task.id in task_manager.tasks
+    assert target_node.active_attack_player_id is None
+    assert target_node.owner_id == owner_before
+    assert {
+        player_id: player.score
+        for player_id, player in game.players.items()
+    } == scores_before
 
 
 # ---------------------------------------------------------------------------

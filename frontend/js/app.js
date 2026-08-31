@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         onNodeUpgraded: (message) =>
             controller.onNodeUpgraded(message),
+
+        onGameFinished: (message) =>
+            controller.onGameFinished(message),
     };
 
     const network = new Network(handlers);

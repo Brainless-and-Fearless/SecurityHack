@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
     onAttackCancelled: vi.fn(),
     onNodeUpgraded: vi.fn(),
+    onGameFinished: vi.fn(),
 }));
 
 vi.mock('../js/Model.js', () => ({
@@ -66,6 +67,10 @@ vi.mock('../js/Controller.js', () => ({
 
         onNodeUpgraded(message) {
             mocks.onNodeUpgraded(message);
+        }
+
+        onGameFinished(message) {
+            mocks.onGameFinished(message);
         }
     },
 }));
@@ -160,6 +165,45 @@ describe('app bootstrap', () => {
 
         expect(
             mocks.onNodeUpgraded
+        ).toHaveBeenCalledWith(message);
+
+        vi.unstubAllGlobals();
+    });
+
+
+    test('routes GAME_FINISHED from Network to Controller', async () => {
+        vi.stubGlobal('document', {
+            addEventListener: vi.fn(
+                (event, callback) => {
+                    if (event === 'DOMContentLoaded') {
+                        callback();
+                    }
+                },
+            ),
+        });
+
+        await import('../js/app.js');
+
+        const message = {
+            type: 'GAME_FINISHED',
+            game_id: 'game_1',
+            winner_id: 'player_1',
+            scores: {
+                player_1: 15,
+                player_2: 10,
+            },
+        };
+
+        expect(
+            mocks.capturedNetworkHandlers.value
+                .onGameFinished
+        ).toEqual(expect.any(Function));
+
+        mocks.capturedNetworkHandlers.value
+            .onGameFinished(message);
+
+        expect(
+            mocks.onGameFinished
         ).toHaveBeenCalledWith(message);
 
         vi.unstubAllGlobals();

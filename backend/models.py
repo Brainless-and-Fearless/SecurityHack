@@ -120,6 +120,9 @@ class TaskResolution(BaseModel):
 class GameState(BaseModel):
     status: GameStatus = GameStatus.WAITING
 
+    winner_id: Optional[str] = None
+    is_draw: bool = False
+
     players: dict[str, Player] = Field(default_factory=dict)
     nodes: dict[str, Node] = Field(default_factory=dict)
     tasks: dict[str, Task] = Field(default_factory=dict)
