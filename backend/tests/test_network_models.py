@@ -27,6 +27,8 @@ from network_models import (
     RoomCreatedMessage,
     RoomJoinedMessage,
     ResumeSessionMessage,
+    LeaveRoomMessage,
+    RoomLeftMessage,
     SessionResumedMessage,
     RoomStateMessage,
     StartGameMessage,
@@ -245,6 +247,21 @@ def test_resume_session_messages_accept_private_session_contract():
     assert response.room_id == "ABC234"
     assert response.is_host is True
     assert response.game_id == "game_1"
+
+
+def test_leave_room_messages_accept_explicit_lobby_leave_contract():
+    request = LeaveRoomMessage(
+        type="LEAVE_ROOM",
+        request_id="req_leave",
+    )
+    response = RoomLeftMessage(
+        type="ROOM_LEFT",
+        request_id="req_leave",
+        room_id="ABC234",
+    )
+
+    assert request.request_id == "req_leave"
+    assert response.room_id == "ABC234"
 
 
 def test_game_started_message_accepts_valid_data():

@@ -2,6 +2,10 @@ class ConnectionManager:
     def __init__(self):
         self.connections = {}
         self.player_rooms = {}
+        self.disconnect_handler = None
+
+    def set_disconnect_handler(self, handler):
+        self.disconnect_handler = handler
 
     async def connect(
         self,
@@ -27,15 +31,25 @@ class ConnectionManager:
         self,
         player_id,
         websocket=None,
+        notify=True,
     ):
         if (
             websocket is not None
             and self.connections.get(player_id) is not websocket
         ):
-            return
+            return False
 
+        if player_id not in self.connections:
+            return False
+
+        room_id = self.player_rooms.get(player_id)
         self.connections.pop(player_id, None)
         self.player_rooms.pop(player_id, None)
+
+        if notify and self.disconnect_handler is not None:
+            await self.disconnect_handler(player_id, room_id)
+
+        return True
 
     async def send_to_player(
         self,

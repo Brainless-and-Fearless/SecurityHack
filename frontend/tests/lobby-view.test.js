@@ -230,4 +230,63 @@ describe('LobbyView map preview', () => {
         expect(ctx.arc).toHaveBeenCalledTimes(3);
         expect(ctx.lineTo).toHaveBeenCalledTimes(1);
     });
+
+    test('renders authoritative offline presence and restores online state', () => {
+        const rows = [];
+        vi.stubGlobal('document', {
+            createElement: vi.fn(() => {
+                const row = {
+                    className: '',
+                    innerHTML: '',
+                };
+                rows.push(row);
+                return row;
+            }),
+        });
+        const classList = {
+            add: vi.fn(),
+            remove: vi.fn(),
+            toggle: vi.fn(),
+        };
+        const view = Object.create(LobbyView.prototype);
+        view.lobbyRoomCode = { textContent: '' };
+        view.playerListEl = {
+            innerHTML: '',
+            appendChild: vi.fn(),
+        };
+        view.playerCountEl = { textContent: '', classList };
+        view.startBtn = { classList, disabled: false };
+        view.startHint = { classList, textContent: '' };
+        view.waitingHost = { classList };
+        view._escapeHtml = (value) => value;
+        view._drawMapPreview = vi.fn();
+        const room = {
+            roomCode: 'ABC234',
+            you: { id: 'alice' },
+            players: [
+                {
+                    id: 'alice',
+                    name: 'Alice',
+                    isHost: true,
+                    status: 'online',
+                },
+                {
+                    id: 'bob',
+                    name: 'Bob',
+                    isHost: false,
+                    status: 'offline',
+                },
+            ],
+            mapPreview: null,
+        };
+
+        view.renderRoom(room);
+        expect(rows[1].innerHTML).toContain('status-dot offline');
+
+        room.players[1].status = 'online';
+        view.renderRoom(room);
+        expect(rows[9].innerHTML).not.toContain('offline');
+
+        vi.unstubAllGlobals();
+    });
 });

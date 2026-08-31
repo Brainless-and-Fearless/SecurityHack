@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     onNodeUpgraded: vi.fn(),
     onGameFinished: vi.fn(),
     onConnectionStateChange: vi.fn(),
+    onRoomLeft: vi.fn(),
 }));
 
 vi.mock('../js/Model.js', () => ({
@@ -77,6 +78,10 @@ vi.mock('../js/Controller.js', () => ({
 
         onConnectionStateChange(state) {
             mocks.onConnectionStateChange(state);
+        }
+
+        onRoomLeft(message) {
+            mocks.onRoomLeft(message);
         }
     },
 }));
@@ -243,6 +248,33 @@ describe('app bootstrap', () => {
         expect(
             mocks.onConnectionStateChange
         ).toHaveBeenCalledWith('reconnecting');
+
+        vi.unstubAllGlobals();
+    });
+
+    test('routes ROOM_LEFT from Network to Controller', async () => {
+        vi.stubGlobal('document', {
+            addEventListener: vi.fn(
+                (event, callback) => {
+                    if (event === 'DOMContentLoaded') {
+                        callback();
+                    }
+                },
+            ),
+        });
+
+        await import('../js/app.js');
+        const message = {
+            type: 'ROOM_LEFT',
+            request_id: 'req_leave',
+            room_id: 'ABC234',
+        };
+
+        expect(
+            mocks.capturedNetworkHandlers.value.onRoomLeft
+        ).toEqual(expect.any(Function));
+        mocks.capturedNetworkHandlers.value.onRoomLeft(message);
+        expect(mocks.onRoomLeft).toHaveBeenCalledWith(message);
 
         vi.unstubAllGlobals();
     });

@@ -102,4 +102,30 @@ def test_build_room_state_contains_stable_map_preview():
     assert host_state.map_preview is not None
     assert host_state.map_preview == (
         player_state.map_preview
-    )        
+    )
+
+
+def test_build_room_state_uses_process_local_presence():
+    room = Room(
+        id="ABC234",
+        host_id="player_1",
+        player_ids=["player_1", "player_2"],
+        player_nicknames={
+            "player_1": "Alice",
+            "player_2": "Bob",
+        },
+    )
+
+    message = build_room_state(
+        room,
+        current_player_id="player_1",
+        player_statuses={
+            "player_1": "online",
+            "player_2": "offline",
+        },
+    )
+
+    assert [player.status for player in message.players] == [
+        "online",
+        "offline",
+    ]

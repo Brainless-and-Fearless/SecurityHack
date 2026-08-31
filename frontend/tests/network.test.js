@@ -344,6 +344,7 @@ function createConnectedNetwork(onError) {
         constructor() {
             this.readyState = 0;
             this.listeners = {};
+            this.send = vi.fn();
             sockets.push(this);
         }
 
@@ -399,6 +400,14 @@ test('intentional leave does not report a lost connection', async () => {
     };
 
     network.leaveRoom();
+    const request = JSON.parse(socket.send.mock.calls[0][0]);
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'ROOM_LEFT',
+            request_id: request.request_id,
+            room_id: 'ABC234',
+        }),
+    });
     socket.emit('close');
 
     expect(onError).not.toHaveBeenCalled();
@@ -754,8 +763,18 @@ test('intentional leave clears resume session and never reconnects', async () =>
     socket.readyState = WebSocketClass.OPEN;
     socket.emit('open');
     await connected;
+    network.roomId = 'ABC234';
+    network.you = { id: 'player_1' };
 
     network.leaveRoom();
+    const request = JSON.parse(socket.send.mock.calls[0][0]);
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'ROOM_LEFT',
+            request_id: request.request_id,
+            room_id: 'ABC234',
+        }),
+    });
     socket.emit('close');
     await vi.runAllTimersAsync();
 
@@ -768,4 +787,185 @@ test('intentional leave clears resume session and never reconnects', async () =>
 
     vi.useRealTimers();
     vi.unstubAllGlobals();
+});
+
+
+test('connected lobby leave waits for ROOM_LEFT before clearing session', async () => {
+    const onRoomLeft = vi.fn();
+    const {
+        network,
+        sockets,
+        storage,
+        WebSocketClass,
+    } = createReconnectNetwork({ handlers: { onRoomLeft } });
+    const connected = network._connect();
+    const socket = sockets[0];
+    socket.readyState = WebSocketClass.OPEN;
+    socket.emit('open');
+    await connected;
+    network.roomId = 'ABC234';
+    network.you = { id: 'player_1' };
+
+    network.leaveRoom();
+
+    const request = JSON.parse(socket.send.mock.calls[0][0]);
+    expect(request).toEqual({
+        type: 'LEAVE_ROOM',
+        request_id: expect.any(String),
+    });
+    expect(network.sessionToken).toBe('private-token');
+    expect(network.roomId).toBe('ABC234');
+    expect(socket.readyState).toBe(WebSocketClass.OPEN);
+
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'ROOM_LEFT',
+            request_id: request.request_id,
+            room_id: 'ABC234',
+        }),
+    });
+
+    expect(storage.removeItem).toHaveBeenCalledWith(
+        'securityhack.sessionToken'
+    );
+    expect(network.sessionToken).toBeNull();
+    expect(network.roomId).toBeNull();
+    expect(network.you).toBeNull();
+    expect(network.ws).toBeNull();
+    expect(socket.readyState).toBe(3);
+    expect(onRoomLeft).toHaveBeenCalledWith(
+        expect.objectContaining({ room_id: 'ABC234' })
+    );
+
+    vi.unstubAllGlobals();
+});
+
+
+test('leave error preserves session identity and current socket', async () => {
+    const onError = vi.fn();
+    const {
+        network,
+        sockets,
+        storage,
+        WebSocketClass,
+    } = createReconnectNetwork({ handlers: { onError } });
+    const connected = network._connect();
+    const socket = sockets[0];
+    socket.readyState = WebSocketClass.OPEN;
+    socket.emit('open');
+    await connected;
+    network.roomId = 'ABC234';
+    network.you = { id: 'player_1' };
+    network.leaveRoom();
+    const request = JSON.parse(socket.send.mock.calls[0][0]);
+
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'ERROR',
+            request_id: request.request_id,
+            code: 'LEAVE_NOT_ALLOWED_AFTER_GAME_START',
+            message: 'Leave is not allowed.',
+        }),
+    });
+
+    expect(network.sessionToken).toBe('private-token');
+    expect(network.roomId).toBe('ABC234');
+    expect(network.you).toEqual({ id: 'player_1' });
+    expect(network.ws).toBe(socket);
+    expect(socket.readyState).toBe(WebSocketClass.OPEN);
+    expect(storage.removeItem).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith('Leave is not allowed.');
+
+    network.leaveRoom();
+    vi.unstubAllGlobals();
+});
+
+
+test('unavailable socket leave clears locally and cancels reconnect', async () => {
+    vi.useFakeTimers();
+    const onRoomLeft = vi.fn();
+    const {
+        network,
+        sockets,
+    } = createReconnectNetwork({ handlers: { onRoomLeft } });
+    network.roomId = 'ABC234';
+    network.you = { id: 'player_1' };
+    network._scheduleReconnect();
+    expect(vi.getTimerCount()).toBe(1);
+
+    network.leaveRoom();
+
+    expect(network.sessionToken).toBeNull();
+    expect(network.roomId).toBeNull();
+    expect(network.you).toBeNull();
+    expect(network.connectionState).toBe('disconnected');
+    expect(onRoomLeft).toHaveBeenCalledWith(
+        expect.objectContaining({
+            room_id: 'ABC234',
+            local: true,
+        })
+    );
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(sockets).toHaveLength(0);
+
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
+
+
+test('ROOM_STATE forwards authoritative offline and online presence', () => {
+    const onRoomState = vi.fn();
+    const network = new Network(
+        { onRoomState },
+        'ws://localhost/ws'
+    );
+    const base = {
+        type: 'ROOM_STATE',
+        roomCode: 'ABC234',
+        you: {
+            id: 'player_1',
+            name: 'Alice',
+            isHost: true,
+            status: 'online',
+        },
+        mapPreview: null,
+    };
+
+    network._handleMessage({
+        data: JSON.stringify({
+            ...base,
+            players: [
+                base.you,
+                {
+                    id: 'player_2',
+                    name: 'Bob',
+                    isHost: false,
+                    status: 'offline',
+                },
+            ],
+        }),
+    });
+    network._handleMessage({
+        data: JSON.stringify({
+            ...base,
+            players: [
+                base.you,
+                {
+                    id: 'player_2',
+                    name: 'Bob',
+                    isHost: false,
+                    status: 'online',
+                },
+            ],
+        }),
+    });
+
+    expect(onRoomState.mock.calls[0][0].players[1].status).toBe(
+        'offline'
+    );
+    expect(onRoomState.mock.calls[1][0].players[1].status).toBe(
+        'online'
+    );
 });

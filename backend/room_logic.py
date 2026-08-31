@@ -56,6 +56,7 @@ def leave_room(
         raise ValueError("PLAYER_NOT_IN_ROOM")
 
     room.player_ids.remove(player_id)
+    room.player_nicknames.pop(player_id, None)
 
     if not room.player_ids:
         return True

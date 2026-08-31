@@ -169,7 +169,12 @@ export class Controller {
     onRoomState(room) {
         this.room = room;
 
-        this.lobbyView.showLobbyScreen();
+        const gameStatus = this.model?.state?.status;
+
+        if (gameStatus !== 'running' && gameStatus !== 'finished') {
+            this.lobbyView.showLobbyScreen();
+        }
+
         this.lobbyView.renderRoom(room);
     }
 
@@ -203,7 +208,9 @@ export class Controller {
 
     handleLeaveRoom() {
         this.network.leaveRoom();
+    }
 
+    onRoomLeft() {
         this.room = null;
         this.lobbyView.clearMapPreview();
 

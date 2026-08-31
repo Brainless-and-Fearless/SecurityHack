@@ -15,6 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
         onRoomState: (room) =>
             controller.onRoomState(room),
 
+        onRoomLeft: (message) =>
+            controller.onRoomLeft(message),
+
         onError: (message) =>
             controller.onNetworkError(message),
 

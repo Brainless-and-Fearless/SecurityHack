@@ -163,6 +163,15 @@ def test_player_not_in_room_cannot_leave():
         assert str(error) == "PLAYER_NOT_IN_ROOM"    
 
 
+def test_leave_removes_room_nickname_presentation():
+    room = create_room("room_1", "player_1", "Alice")
+    join_room(room, "player_2", "Bob")
+
+    leave_room(room, "player_2")
+
+    assert "player_2" not in room.player_nicknames
+
+
 def test_host_transfer_is_deterministic():
     room = create_room("room_1", "player_1", nickname="Alice",)
 
@@ -208,4 +217,4 @@ def test_join_room_stores_player_nickname():
     assert room.player_nicknames == {
         "player_1": "Alice",
         "player_2": "Bob",
-    } 
+    }

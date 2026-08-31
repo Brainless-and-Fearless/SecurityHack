@@ -1491,6 +1491,60 @@ test('reconnecting state blocks gameplay actions', () => {
     expect(network.upgradeNode).not.toHaveBeenCalled();
 });
 
+test.each(['running', 'finished'])(
+    'ROOM_STATE updates metadata without leaving the %s screen',
+    (status) => {
+        const updatedRoom = {
+            roomCode: 'ROOM01',
+            players: [{ id: 'player_1', status: 'offline' }],
+        };
+        const gameScreen = {
+            classList: { add: vi.fn() },
+        };
+        const lobbyView = {
+            showLobbyScreen: vi.fn(() => {
+                gameScreen.classList.add('hidden');
+            }),
+            renderRoom: vi.fn(),
+        };
+        const context = {
+            room: null,
+            model: { state: { status } },
+            lobbyView,
+            gameScreen,
+        };
+
+        Controller.prototype.onRoomState.call(context, updatedRoom);
+
+        expect(context.room).toBe(updatedRoom);
+        expect(lobbyView.showLobbyScreen).not.toHaveBeenCalled();
+        expect(gameScreen.classList.add).not.toHaveBeenCalled();
+        expect(lobbyView.renderRoom).toHaveBeenCalledWith(updatedRoom);
+    },
+);
+
+test('ROOM_STATE keeps existing lobby navigation while waiting', () => {
+    const updatedRoom = {
+        roomCode: 'ROOM01',
+        players: [{ id: 'player_1', status: 'online' }],
+    };
+    const lobbyView = {
+        showLobbyScreen: vi.fn(),
+        renderRoom: vi.fn(),
+    };
+    const context = {
+        room: null,
+        model: { state: { status: 'waiting' } },
+        lobbyView,
+    };
+
+    Controller.prototype.onRoomState.call(context, updatedRoom);
+
+    expect(context.room).toBe(updatedRoom);
+    expect(lobbyView.showLobbyScreen).toHaveBeenCalledTimes(1);
+    expect(lobbyView.renderRoom).toHaveBeenCalledWith(updatedRoom);
+});
+
 test('leaving a room clears its preview and allows the next preview', () => {
     const nextRoom = {
         roomCode: 'NEXT01',
@@ -1523,6 +1577,15 @@ test('leaving a room clears its preview and allows the next preview', () => {
     );
 
     expect(context.network.leaveRoom).toHaveBeenCalledTimes(1);
+    expect(lobbyView.clearMapPreview).not.toHaveBeenCalled();
+    expect(context.room).toEqual({ roomCode: 'OLD001' });
+    expect(lobbyView.showEntryScreen).not.toHaveBeenCalled();
+
+    Controller.prototype.onRoomLeft.call(
+        context,
+        { room_id: 'OLD001' },
+    );
+
     expect(lobbyView.clearMapPreview).toHaveBeenCalledTimes(1);
     expect(context.room).toBeNull();
     expect(lobbyView.showEntryScreen).toHaveBeenCalledTimes(1);

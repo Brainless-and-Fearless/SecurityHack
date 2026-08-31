@@ -13,6 +13,7 @@ from connection_manager import ConnectionManager
 from task_manager import TaskManager
 from task_pool import TASK_POOL
 from session_registry import SessionRegistry
+from presence_manager import PresenceManager
 from redis_repository import (
     GameStateRepository,
     RoomRepository,
@@ -33,10 +34,12 @@ from network_models import (
     CreateRoomMessage,
     JoinRoomMessage,
     ResumeSessionMessage,
+    LeaveRoomMessage,
     StartGameMessage,
     RoomCreatedMessage,
     RoomJoinedMessage,
     SessionResumedMessage,
+    RoomLeftMessage,
     ErrorMessage,
     AttackNodeMessage,
     AnswerTaskMessage,
@@ -100,6 +103,18 @@ async def lifespan(app: FastAPI):
         task_manager=task_manager,
     )
 
+    presence_manager = PresenceManager(
+        room_repository=room_repository,
+        game_repository=game_repository,
+        connection_manager=connection_manager,
+        session_registry=session_registry,
+        game_loop_manager=game_loop_manager,
+        task_manager=task_manager,
+    )
+    connection_manager.set_disconnect_handler(
+        presence_manager.handle_disconnect
+    )
+
     app.state.redis = redis_client
     app.state.room_repository = room_repository
     app.state.game_repository = game_repository
@@ -109,12 +124,14 @@ async def lifespan(app: FastAPI):
     app.state.connection_manager = connection_manager
     app.state.session_registry = session_registry
     app.state.game_loop_manager = game_loop_manager
+    app.state.presence_manager = presence_manager
 
     logger.info("SecurityHack API started")
 
     try:
         yield
     finally:
+        await presence_manager.stop_all()
         await game_loop_manager.stop_all()
         await redis_client.aclose()
         logger.info("SecurityHack API stopped")
@@ -179,6 +196,9 @@ async def websocket_endpoint(websocket: WebSocket):
     game_loop_manager = (
         websocket.app.state.game_loop_manager
     )
+    presence_manager = (
+        websocket.app.state.presence_manager
+    )
 
     async def send_error(
         code: str,
@@ -228,6 +248,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     room.id,
                     websocket,
                 )
+                await presence_manager.mark_online(
+                    player_id,
+                    room.id,
+                    broadcast=False,
+                )
 
                 current_room_id = room.id
 
@@ -239,6 +264,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 room_state = build_room_state(
                     room=room,
                     current_player_id=player_id,
+                    player_statuses=presence_manager.statuses_for(
+                        room.player_ids
+                    ),
                 )
 
                 await connection_manager.broadcast_to_room(
@@ -265,6 +293,63 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             # ---------------------------------------------------------
+            # LEAVE_ROOM
+            # ---------------------------------------------------------
+            if message_type == "LEAVE_ROOM":
+                leave_message = LeaveRoomMessage.model_validate(message)
+
+                if current_room_id is None:
+                    await send_error(
+                        code="NOT_IN_ROOM",
+                        message="Player is not in a room.",
+                        request_id=leave_message.request_id,
+                    )
+                    continue
+
+                leaving_room_id = current_room_id
+
+                try:
+                    updated_room = await room_service.leave_room(
+                        leaving_room_id,
+                        player_id,
+                    )
+                except ValueError as exc:
+                    await send_error(
+                        code=str(exc),
+                        message=str(exc),
+                        request_id=leave_message.request_id,
+                    )
+                    continue
+
+                websocket.app.state.session_registry.invalidate_for_player(
+                    leaving_room_id,
+                    player_id,
+                )
+                await presence_manager.remove_player(player_id)
+
+                response = RoomLeftMessage(
+                    type="ROOM_LEFT",
+                    request_id=leave_message.request_id,
+                    room_id=leaving_room_id,
+                )
+                await websocket.send_json(
+                    response.model_dump(mode="json")
+                )
+
+                if updated_room is not None:
+                    await presence_manager.broadcast_room_state(
+                        updated_room
+                    )
+
+                await connection_manager.disconnect(
+                    player_id,
+                    websocket,
+                    notify=False,
+                )
+                current_room_id = None
+                continue
+
+            # ---------------------------------------------------------
             # JOIN_ROOM
             # ---------------------------------------------------------
             if message_type == "JOIN_ROOM":
@@ -285,6 +370,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     room.id,
                     websocket,
                 )
+                await presence_manager.mark_online(
+                    player_id,
+                    room.id,
+                    broadcast=False,
+                )
 
                 current_room_id = room.id
 
@@ -293,19 +383,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     room.id,
                 )
 
-                for target_player_id in room.player_ids:
-                    room_state = build_room_state(
-                        room=room,
-                        current_player_id=target_player_id,
-                    )
-
-                    await connection_manager.send_to_player(
-                        target_player_id,
-                        room_state.model_dump(
-                            mode="json",
-                            by_alias=True,
-                        ),
-                    )
+                await presence_manager.broadcast_room_state(room)
 
                 response = RoomJoinedMessage(
                     type="ROOM_JOINED",
@@ -425,6 +503,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     current_room_id,
                     websocket,
                 )
+                await presence_manager.mark_online(
+                    player_id,
+                    current_room_id,
+                    broadcast=False,
+                )
 
                 resumed = SessionResumedMessage(
                     type="SESSION_RESUMED",
@@ -441,6 +524,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 room_state = build_room_state(
                     room=room,
                     current_player_id=player_id,
+                    player_statuses=presence_manager.statuses_for(
+                        room.player_ids
+                    ),
                 )
                 await websocket.send_json(
                     room_state.model_dump(
@@ -476,6 +562,11 @@ async def websocket_endpoint(websocket: WebSocket):
                             await websocket.send_json(
                                 finished.model_dump(mode="json")
                             )
+
+                await presence_manager.broadcast_room_state(
+                    room,
+                    exclude_player_id=player_id,
+                )
 
                 continue
 

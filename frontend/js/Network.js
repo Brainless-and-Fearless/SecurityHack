@@ -42,6 +42,7 @@ export class Network {
         this.cancelSchedule = options.cancelSchedule ?? clearTimeout;
         this.resumeTimeout = null;
         this.resumePhase = null;
+        this.pendingLeaveRequestId = null;
     }
 
     _defaultStorage() {
@@ -136,6 +137,16 @@ export class Network {
                 this._clearResumeHandshake();
 
                 if (this.expectedCloseSockets.delete(socket)) {
+                    return;
+                }
+
+                if (this.pendingLeaveRequestId !== null) {
+                    this._completeLeave({
+                        type: 'ROOM_LEFT',
+                        request_id: this.pendingLeaveRequestId,
+                        room_id: this.roomId,
+                        local: true,
+                    });
                     return;
                 }
 
@@ -353,6 +364,14 @@ export class Network {
                 this._completeResumeIfReady();
                 break;
 
+            case 'ROOM_LEFT':
+                if (
+                    this.pendingLeaveRequestId === data.request_id
+                ) {
+                    this._completeLeave(data);
+                }
+                break;
+
             case 'ROOM_STATE':
                 this.roomId = data.roomCode;
                 this.you = data.you
@@ -413,6 +432,11 @@ export class Network {
                 break;
 
             case 'ERROR':
+                if (
+                    this.pendingLeaveRequestId === data.request_id
+                ) {
+                    this.pendingLeaveRequestId = null;
+                }
                 if (data.code === 'INVALID_SESSION') {
                     this._clearSessionToken();
                     this._cancelReconnect();
@@ -461,9 +485,35 @@ export class Network {
     }
 
     leaveRoom() {
+        if (this.pendingLeaveRequestId !== null) {
+            return;
+        }
+
+        if (
+            this.ws
+            && this.ws.readyState === WebSocket.OPEN
+            && this.roomId
+        ) {
+            this.pendingLeaveRequestId = this._requestId();
+            this._send('LEAVE_ROOM', {
+                request_id: this.pendingLeaveRequestId,
+            });
+            return;
+        }
+
+        this._completeLeave({
+            type: 'ROOM_LEFT',
+            request_id: null,
+            room_id: this.roomId,
+            local: true,
+        });
+    }
+
+    _completeLeave(message) {
         this._cancelReconnect();
         this._clearResumeHandshake();
         this._clearSessionToken();
+        this.pendingLeaveRequestId = null;
 
         if (this.ws) {
             const socket = this.ws;
@@ -479,6 +529,7 @@ export class Network {
         this.you = null;
         this.reconnectAttempt = 0;
         this._setConnectionState('disconnected');
+        this.handlers.onRoomLeft?.(message);
     }
 
     startGame() {

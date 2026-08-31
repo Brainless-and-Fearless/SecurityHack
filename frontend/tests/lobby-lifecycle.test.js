@@ -103,6 +103,15 @@ test('real LobbyView supports the complete leave and next-preview lifecycle', ()
         );
     }).not.toThrow();
 
+    expect(lobbyView._room).not.toBeNull();
+
+    expect(() => {
+        Controller.prototype.onRoomLeft.call(
+            controllerContext,
+            { room_id: 'OLD001' },
+        );
+    }).not.toThrow();
+
     expect(lobbyView._room).toBeNull();
     expect(ctx.clearRect).toHaveBeenLastCalledWith(
         0,

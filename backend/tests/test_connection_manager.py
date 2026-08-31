@@ -169,13 +169,32 @@ async def test_stale_socket_disconnect_does_not_remove_replacement():
         new_websocket,
     )
 
-    await manager.disconnect(
+    removed = await manager.disconnect(
         "player_1",
         old_websocket,
     )
 
+    assert removed is False
     assert manager.connections["player_1"] is new_websocket
     assert manager.player_rooms["player_1"] == "room_1"
+
+
+@pytest.mark.anyio
+async def test_current_disconnect_returns_true_and_notifies_lifecycle():
+    disconnected = []
+
+    async def on_disconnect(player_id, room_id):
+        disconnected.append((player_id, room_id))
+
+    manager = ConnectionManager()
+    manager.set_disconnect_handler(on_disconnect)
+    websocket = FakeWebSocket()
+    await manager.connect("player_1", "room_1", websocket)
+
+    removed = await manager.disconnect("player_1", websocket)
+
+    assert removed is True
+    assert disconnected == [("player_1", "room_1")]
 
 
 @pytest.mark.anyio

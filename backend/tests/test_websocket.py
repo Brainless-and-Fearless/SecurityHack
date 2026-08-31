@@ -1231,7 +1231,6 @@ def test_player_cannot_upgrade_enemy_node_over_websocket():
         finally:
             game_loop_manager.start = original_start
 
-
 def test_upgrade_node_rejects_insufficient_resources_without_broadcast():
     with TestClient(app) as client:
         game_loop_manager = app.state.game_loop_manager
@@ -1768,3 +1767,139 @@ def test_active_task_survives_resume_and_can_be_answered():
             game_loop_manager.start = original_start
             game_loop_manager.task_manager = original_loop_task_manager
             app.state.task_manager = original_task_manager
+
+
+def test_lobby_leave_acknowledges_invalidates_session_and_updates_room():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            host_ws.send_json({
+                "type": "CREATE_ROOM",
+                "request_id": "req_create_leave",
+                "nickname": "Alice",
+            })
+            host_ws.receive_json()
+            created = host_ws.receive_json()
+
+            with client.websocket_connect("/ws") as player_ws:
+                player_ws.send_json({
+                    "type": "JOIN_ROOM",
+                    "request_id": "req_join_leave",
+                    "room_id": created["room_id"],
+                    "nickname": "Bob",
+                })
+                player_ws.receive_json()
+                joined = player_ws.receive_json()
+                host_ws.receive_json()
+
+                player_ws.send_json({
+                    "type": "LEAVE_ROOM",
+                    "request_id": "req_leave_bob",
+                })
+
+                assert player_ws.receive_json() == {
+                    "type": "ROOM_LEFT",
+                    "request_id": "req_leave_bob",
+                    "room_id": created["room_id"],
+                }
+                updated = host_ws.receive_json()
+                assert updated["type"] == "ROOM_STATE"
+                assert [
+                    player["id"]
+                    for player in updated["players"]
+                ] == [created["player_id"]]
+
+                room = client.portal.call(
+                    app.state.room_repository.get_room,
+                    created["room_id"],
+                )
+                assert room.player_ids == [created["player_id"]]
+                assert joined["player_id"] not in room.player_nicknames
+
+                with client.websocket_connect("/ws") as resumed_ws:
+                    resumed_ws.send_json({
+                        "type": "RESUME_SESSION",
+                        "request_id": "req_resume_left",
+                        "session_token": joined["session_token"],
+                    })
+                    invalid = resumed_ws.receive_json()
+                    assert invalid["type"] == "ERROR"
+                    assert invalid["code"] == "INVALID_SESSION"
+
+
+def test_host_lobby_leave_transfers_host_to_first_remaining_player():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                host_ws.send_json({
+                    "type": "CREATE_ROOM",
+                    "request_id": "req_host_leave_create",
+                    "nickname": "Alice",
+                })
+                host_ws.receive_json()
+                created = host_ws.receive_json()
+                player_ws.send_json({
+                    "type": "JOIN_ROOM",
+                    "request_id": "req_host_leave_join",
+                    "room_id": created["room_id"],
+                    "nickname": "Bob",
+                })
+                player_ws.receive_json()
+                joined = player_ws.receive_json()
+                host_ws.receive_json()
+
+                host_ws.send_json({
+                    "type": "LEAVE_ROOM",
+                    "request_id": "req_host_leave",
+                })
+
+                assert host_ws.receive_json()["type"] == "ROOM_LEFT"
+                updated = player_ws.receive_json()
+                assert updated["type"] == "ROOM_STATE"
+                assert updated["you"]["id"] == joined["player_id"]
+                assert updated["you"]["isHost"] is True
+
+                room = client.portal.call(
+                    app.state.room_repository.get_room,
+                    created["room_id"],
+                )
+                assert room.host_id == joined["player_id"]
+
+
+def test_running_game_rejects_leave_without_mutating_session_or_membership():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+                    token = started["host_session_token"]
+
+                    host_ws.send_json({
+                        "type": "LEAVE_ROOM",
+                        "request_id": "req_running_leave",
+                    })
+                    error = host_ws.receive_json()
+
+                    assert error["type"] == "ERROR"
+                    assert error["code"] == (
+                        "LEAVE_NOT_ALLOWED_AFTER_GAME_START"
+                    )
+                    room = client.portal.call(
+                        app.state.room_repository.get_room,
+                        started["room_id"],
+                    )
+                    game = client.portal.call(
+                        app.state.game_repository.get_game,
+                        started["game_id"],
+                    )
+                    assert started["host_player_id"] in room.player_ids
+                    assert started["host_player_id"] in game.players
+                    assert app.state.session_registry.get(token) is not None
+        finally:
+            game_loop_manager.start = original_start

@@ -102,6 +102,11 @@ class ResumeSessionMessage(BaseModel):
     session_token: str
 
 
+class LeaveRoomMessage(BaseModel):
+    type: Literal["LEAVE_ROOM"]
+    request_id: str
+
+
 class StartGameMessage(BaseModel):
     type: Literal["START_GAME"]
     request_id: str
@@ -148,6 +153,12 @@ class SessionResumedMessage(BaseModel):
     room_id: str
     is_host: bool
     game_id: str | None
+
+
+class RoomLeftMessage(BaseModel):
+    type: Literal["ROOM_LEFT"]
+    request_id: str
+    room_id: str
 
 
 class GameStartedMessage(BaseModel):

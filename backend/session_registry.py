@@ -40,3 +40,20 @@ class SessionRegistry:
 
     def invalidate(self, token: str) -> None:
         self.sessions.pop(token, None)
+
+    def invalidate_for_player(
+        self,
+        room_id: str,
+        player_id: str,
+    ) -> None:
+        tokens = [
+            token
+            for token, session in self.sessions.items()
+            if (
+                session.room_id == room_id
+                and session.player_id == player_id
+            )
+        ]
+
+        for token in tokens:
+            self.invalidate(token)

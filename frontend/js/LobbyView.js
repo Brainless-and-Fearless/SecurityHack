@@ -125,8 +125,8 @@ export class LobbyView {
                         ${p.id === room.you.id ? '<span class="you-tag">(вы)</span>' : ''}
                     </div>
                     <div class="status-line">
-                        <span class="status-dot ${p.status === 'reconnecting' ? 'reconnecting' : ''}"></span>
-                        <span>${p.status === 'reconnecting' ? 'переподключение…' : 'в сети'}</span>
+                        <span class="status-dot ${p.status === 'offline' ? 'offline' : ''}"></span>
+                        <span>${p.status === 'offline' ? 'не в сети' : 'в сети'}</span>
                     </div>
                 </div>
             `;

@@ -5,6 +5,7 @@ from map_preview import build_room_map_preview
 def build_room_state(
     room: Room,
     current_player_id: str,
+    player_statuses: dict[str, str] | None = None,
 ) -> RoomStateMessage:
     if current_player_id not in room.player_ids:
         raise ValueError("PLAYER_NOT_IN_ROOM")
@@ -24,7 +25,10 @@ def build_room_state(
                 id=player_id,
                 name=nickname,
                 is_host=player_id == room.host_id,
-                status="online",
+                status=(player_statuses or {}).get(
+                    player_id,
+                    "online",
+                ),
             )
         )
 

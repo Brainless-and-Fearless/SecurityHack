@@ -297,6 +297,7 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
 .status-line { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--surface-muted); }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success-color); box-shadow: 0 0 6px var(--success-color); flex-shrink: 0; }
 .status-dot.reconnecting { background: var(--level2-color); box-shadow: 0 0 6px var(--level2-color); animation: pulseDot 1s infinite; }
+.status-dot.offline { background: var(--text-muted); box-shadow: none; }
 @keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
 .player-slot-empty {

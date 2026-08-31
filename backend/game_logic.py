@@ -16,7 +16,7 @@ from models import (
 # Constants
 # ---------------------------------------------------------------------------
 
-MATCH_DURATION_SECONDS = 15 + 3
+MATCH_DURATION_SECONDS = 15 * 60
 
 MAX_RESOURCES = 200.0
 
@@ -374,9 +374,39 @@ def cancel_attack(
     # Validate both stores before mutating either one.
     task_manager.get_task(task_id)
 
+    cancel_attack_state(
+        game,
+        player_id,
+        task_id,
+    )
+    task_manager.remove_task(task_id)
+
+
+def cancel_attack_state(
+    game: GameState,
+    player_id: str,
+    task_id: str,
+) -> None:
+    """Cancel an attack only in GameState."""
+
+    if game.status != GameStatus.RUNNING:
+        raise ValueError("GAME_NOT_RUNNING")
+
+    task = game.tasks.get(task_id)
+
+    if task is None:
+        raise ValueError("TASK_NOT_FOUND")
+
+    if task.player_id != player_id:
+        raise ValueError("TASK_NOT_OWNED")
+
+    node = game.nodes.get(task.node_id)
+
+    if node is None:
+        raise ValueError("NODE_NOT_FOUND")
+
     node.active_attack_player_id = None
     del game.tasks[task_id]
-    task_manager.remove_task(task_id)
 
 
 # ---------------------------------------------------------------------------
