@@ -23,6 +23,7 @@ from network_models import (
     JoinRoomMessage,
     MapPreview,
     MapPreviewNode,
+    NodeUpgradedMessage,
     RoomCreatedMessage,
     RoomJoinedMessage,
     RoomStateMessage,
@@ -182,6 +183,24 @@ def test_upgrade_node_message_accepts_valid_data():
     assert message.type == "UPGRADE_NODE"
     assert message.request_id == "req_5"
     assert message.node_id == "A"    
+
+
+def test_node_upgraded_message_reports_authoritative_upgrade_details():
+    message = NodeUpgradedMessage(
+        type="NODE_UPGRADED",
+        request_id="req_upgrade",
+        node_id="A",
+        from_level=DefenceLevel.K1,
+        to_level=DefenceLevel.K2,
+        cost=10.0,
+    )
+
+    assert message.type == "NODE_UPGRADED"
+    assert message.request_id == "req_upgrade"
+    assert message.node_id == "A"
+    assert message.from_level == DefenceLevel.K1
+    assert message.to_level == DefenceLevel.K2
+    assert message.cost == 10.0
 
 
 def test_room_joined_message_accepts_valid_data():
@@ -495,4 +514,4 @@ def test_room_state_message_accepts_map_preview():
 
     assert data["mapPreview"]["orbitCount"] == 3
     assert data["mapPreview"]["nodes"][0]["id"] == "n1_0"
-    assert data["mapPreview"]["spawnNodes"] == ["n3_0"]    
+    assert data["mapPreview"]["spawnNodes"] == ["n3_0"]

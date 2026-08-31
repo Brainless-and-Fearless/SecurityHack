@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from models import GameState, Room, Task
+from models import DefenceLevel, GameState, Room, Task
 
 
 class CreateRoomMessage(BaseModel):
@@ -167,6 +167,15 @@ class AttackCancelledMessage(BaseModel):
     request_id: str
     task_id: str
     node_id: str
+
+
+class NodeUpgradedMessage(BaseModel):
+    type: Literal["NODE_UPGRADED"]
+    request_id: str
+    node_id: str
+    from_level: DefenceLevel
+    to_level: DefenceLevel
+    cost: float
 
 
 class GameFinishedMessage(BaseModel):

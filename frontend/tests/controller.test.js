@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { Controller } from '../js/Controller.js';
+import { Network } from '../js/Network.js';
 
 describe('Controller', () => {
     test('forwards GAME_STATE to Model', () => {
@@ -392,6 +393,9 @@ describe('Controller', () => {
                 view,
                 lobbyView,
                 {
+                    you: {
+                        id: 'player_1',
+                    },
                     startGame: vi.fn(),
                 },
             );
@@ -804,6 +808,12 @@ function createAttackController(elements = {}) {
                     defence_level: 'K1',
                     neighbor_ids: ['node_1'],
                 },
+                node_3: {
+                    id: 'node_3',
+                    owner_id: null,
+                    defence_level: 'K1',
+                    neighbor_ids: ['node_1'],
+                },
             },
             tasks: {},
             remainingTimeSeconds: 900,
@@ -841,7 +851,13 @@ function createAttackController(elements = {}) {
     };
 
     const network = {
+        you: {
+            id: 'player_1',
+            nickname: 'Alice',
+            isHost: true,
+        },
         attackNode: vi.fn(),
+        upgradeNode: vi.fn(),
         answerTask: vi.fn(),
         cancelAttack: vi.fn(),
         startGame: vi.fn(),
@@ -890,18 +906,13 @@ function createAttackController(elements = {}) {
     };
 }
 
-test('clicking a node sends ATTACK_NODE through Network', () => {
-    const canvas = {
-        addEventListener: vi.fn(),
-    };
-
+test('clicking an enemy node attacks without opening upgrade panel', () => {
+    const elements = createUpgradeElements();
     const {
         controller,
         view,
         network,
-    } = createAttackController({
-        'game-canvas': canvas,
-    });
+    } = createAttackController(elements);
 
     view.getNodeAtPoint.mockReturnValue(
         'node_2'
@@ -919,6 +930,319 @@ test('clicking a node sends ATTACK_NODE through Network', () => {
     expect(
         network.attackNode
     ).toHaveBeenCalledWith('node_2');
+    expect(controller.selectedUpgradeNodeId).toBeNull();
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(true);
+});
+
+
+function createUpgradeElements() {
+    return {
+        'game-canvas': {
+            addEventListener: vi.fn(),
+        },
+        'node-upgrade-panel': {
+            classList: createTrackedClassList('hidden'),
+        },
+        'node-upgrade-title': {
+            textContent: '',
+        },
+        'node-upgrade-details': {
+            textContent: '',
+        },
+        'upgrade-node-btn': {
+            textContent: '',
+            disabled: false,
+            addEventListener: vi.fn(),
+            classList: createTrackedClassList(),
+        },
+        'close-node-upgrade-btn': {
+            addEventListener: vi.fn(),
+        },
+    };
+}
+
+
+test('clicking an owned node opens upgrade action without attacking', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        view,
+        network,
+    } = createAttackController(elements);
+
+    view.getNodeAtPoint.mockReturnValue('node_1');
+
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    expect(network.attackNode).not.toHaveBeenCalled();
+    expect(controller.selectedUpgradeNodeId).toBe('node_1');
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(false);
+    expect(elements['node-upgrade-title'].textContent).toContain('K1');
+    expect(elements['node-upgrade-details'].textContent).toContain('K2');
+    expect(elements['node-upgrade-details'].textContent).toContain('10');
+});
+
+
+test('Network player identity routes an owned node to upgrade flow', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        view,
+    } = createAttackController(elements);
+    const network = new Network({}, 'ws://localhost/ws');
+    network.attackNode = vi.fn();
+    network.upgradeNode = vi.fn();
+    network._handleMessage({
+        data: JSON.stringify({
+            type: 'ROOM_CREATED',
+            request_id: 'req_create',
+            room_id: 'ABC234',
+            player_id: 'player_1',
+            is_host: true,
+        }),
+    });
+    controller.network = network;
+    controller.room = {
+        roomCode: 'ABC234',
+        players: [],
+        mapPreview: null,
+    };
+    view.getNodeAtPoint.mockReturnValue('node_1');
+
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    expect(network.you.id).toBe('player_1');
+    expect(network.attackNode).not.toHaveBeenCalled();
+    expect(controller.selectedUpgradeNodeId).toBe('node_1');
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(false);
+});
+
+
+test('clicking a neutral node keeps the attack flow', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        view,
+        network,
+    } = createAttackController(elements);
+    view.getNodeAtPoint.mockReturnValue('node_3');
+
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    expect(network.attackNode).toHaveBeenCalledWith('node_3');
+    expect(controller.selectedUpgradeNodeId).toBeNull();
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(true);
+});
+
+
+test('upgrade button sends only the selected node through Network', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        view,
+        network,
+    } = createAttackController(elements);
+
+    view.getNodeAtPoint.mockReturnValue('node_1');
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    const clickHandler = elements['upgrade-node-btn']
+        .addEventListener.mock.calls
+        .find(([event]) => event === 'click')[1];
+    clickHandler();
+
+    expect(network.upgradeNode).toHaveBeenCalledTimes(1);
+    expect(network.upgradeNode).toHaveBeenCalledWith('node_1');
+});
+
+
+test('local resources do not gate an owned K1 or K2 upgrade request', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        model,
+        view,
+        network,
+    } = createAttackController(elements);
+    model.state.players.player_1.resources = 0;
+    model.state.nodes.node_1.defence_level = 'K2';
+    view.getNodeAtPoint.mockReturnValue('node_1');
+
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    expect(elements['node-upgrade-details'].textContent).toContain('20');
+    expect(elements['upgrade-node-btn'].disabled).toBe(false);
+
+    const clickHandler = elements['upgrade-node-btn']
+        .addEventListener.mock.calls
+        .find(([event]) => event === 'click')[1];
+    clickHandler();
+
+    expect(network.upgradeNode).toHaveBeenCalledTimes(1);
+    expect(network.upgradeNode).toHaveBeenCalledWith('node_1');
+});
+
+
+test('K3 owned node shows max level and cannot request K4', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        model,
+        view,
+        network,
+    } = createAttackController(elements);
+    model.state.nodes.node_1.defence_level = 'K3';
+    view.getNodeAtPoint.mockReturnValue('node_1');
+
+    controller.handleNodeClick({
+        clientX: 100,
+        clientY: 100,
+    });
+
+    expect(elements['node-upgrade-details'].textContent).toContain(
+        'Максимальный'
+    );
+    expect(elements['upgrade-node-btn'].disabled).toBe(true);
+    expect(
+        elements['upgrade-node-btn'].classList.contains('hidden')
+    ).toBe(true);
+
+    const clickHandler = elements['upgrade-node-btn']
+        .addEventListener.mock.calls
+        .find(([event]) => event === 'click')[1];
+    clickHandler();
+
+    expect(network.upgradeNode).not.toHaveBeenCalled();
+});
+
+
+test('authoritative GAME_STATE refreshes upgrade level and resources', () => {
+    const elements = createUpgradeElements();
+    elements['player-resources'] = {
+        textContent: '',
+        offsetWidth: 0,
+        classList: createTrackedClassList(),
+        addEventListener: vi.fn(),
+    };
+    const {
+        controller,
+        model,
+        view,
+    } = createAttackController(elements);
+    view.getNodeAtPoint.mockReturnValue('node_1');
+    controller.handleNodeClick({ clientX: 100, clientY: 100 });
+
+    const game = {
+        status: 'running',
+        players: {
+            player_1: {
+                id: 'player_1',
+                nickname: 'Alice',
+                score: 0,
+                resources: 10,
+                owned_node_ids: ['node_1'],
+            },
+        },
+        nodes: {
+            node_1: {
+                id: 'node_1',
+                owner_id: 'player_1',
+                defence_level: 'K2',
+                neighbor_ids: ['node_2'],
+            },
+        },
+        tasks: {},
+        remaining_time_seconds: 899,
+    };
+    model.applyGameState.mockImplementation((gameId, state) => {
+        model.state.gameId = gameId;
+        model.state.status = state.status;
+        model.state.players = state.players;
+        model.state.nodes = state.nodes;
+        model.state.tasks = state.tasks;
+        model.state.remainingTimeSeconds = state.remaining_time_seconds;
+    });
+
+    controller.onGameState({
+        gameId: 'game_1',
+        game,
+    });
+
+    expect(elements['player-resources'].textContent).toBe('10');
+    expect(elements['node-upgrade-title'].textContent).toContain('K2');
+    expect(elements['node-upgrade-details'].textContent).toContain('K3');
+    expect(elements['node-upgrade-details'].textContent).toContain('20');
+    expect(controller.selectedUpgradeNodeId).toBe('node_1');
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(false);
+    expect(view.render).toHaveBeenLastCalledWith([
+        expect.objectContaining({ defence_level: 'K2' }),
+    ]);
+});
+
+
+test('authoritative ownership loss closes the selected upgrade panel', () => {
+    const elements = createUpgradeElements();
+    const {
+        controller,
+        model,
+        view,
+    } = createAttackController(elements);
+    view.getNodeAtPoint.mockReturnValue('node_1');
+    controller.handleNodeClick({ clientX: 100, clientY: 100 });
+    model.applyGameState.mockImplementation((gameId, state) => {
+        model.state.gameId = gameId;
+        model.state.status = state.status;
+        model.state.players = state.players;
+        model.state.nodes = state.nodes;
+        model.state.tasks = state.tasks;
+        model.state.remainingTimeSeconds = state.remaining_time_seconds;
+    });
+
+    controller.onGameState({
+        gameId: 'game_1',
+        game: {
+            status: 'running',
+            players: model.state.players,
+            nodes: {
+                node_1: {
+                    ...model.state.nodes.node_1,
+                    owner_id: 'player_2',
+                },
+            },
+            tasks: {},
+            remaining_time_seconds: 899,
+        },
+    });
+
+    expect(controller.selectedUpgradeNodeId).toBeNull();
+    expect(
+        elements['node-upgrade-panel'].classList.contains('hidden')
+    ).toBe(true);
 });
 
 test('leaving a room clears its preview and allows the next preview', () => {

@@ -23,7 +23,24 @@ export class Controller {
             'cancel-task-btn'
         );
 
+        this.nodeUpgradePanel = document.getElementById(
+            'node-upgrade-panel'
+        );
+        this.nodeUpgradeTitle = document.getElementById(
+            'node-upgrade-title'
+        );
+        this.nodeUpgradeDetails = document.getElementById(
+            'node-upgrade-details'
+        );
+        this.upgradeNodeBtn = document.getElementById(
+            'upgrade-node-btn'
+        );
+        this.closeNodeUpgradeBtn = document.getElementById(
+            'close-node-upgrade-btn'
+        );
+
         this.activeTask = null;
+        this.selectedUpgradeNodeId = null;
 
         this._prevResources = null;
         this._prevScore = null;
@@ -75,6 +92,16 @@ export class Controller {
         this.cancelTaskBtn?.addEventListener(
             'click',
             () => this.handleCancelTask()
+        );
+
+        this.upgradeNodeBtn?.addEventListener(
+            'click',
+            () => this.handleUpgradeNode()
+        );
+
+        this.closeNodeUpgradeBtn?.addEventListener(
+            'click',
+            () => this.closeNodeUpgradePanel()
         );
 
         document
@@ -186,6 +213,8 @@ export class Controller {
         this.view.render(
             Object.values(this.model.state.nodes)
         );
+
+        this.refreshSelectedNodeUpgrade();
     }
 
     startGame() {
@@ -211,7 +240,7 @@ export class Controller {
     }
 
     updateHud() {
-        const playerId = this.room?.you?.id;
+        const playerId = this.getCurrentPlayerId();
 
         const player = playerId
             ? this.model.state.players[playerId]
@@ -295,6 +324,10 @@ export class Controller {
         );
     }
 
+    getCurrentPlayerId() {
+        return this.network.you?.id ?? null;
+    }
+
     formatTime(totalSeconds) {
         const minutes =
             Math.floor(totalSeconds / 60);
@@ -327,7 +360,105 @@ export class Controller {
             return;
         }
 
+        const node = this.model.state.nodes[nodeId];
+        const playerId = this.getCurrentPlayerId();
+
+        if (node?.owner_id === playerId) {
+            this.showNodeUpgradeAction(node);
+            return;
+        }
+
         this.network.attackNode(nodeId);
+    }
+
+    showNodeUpgradeAction(node) {
+        const upgrades = {
+            K1: { toLevel: 'K2', cost: 10 },
+            K2: { toLevel: 'K3', cost: 20 },
+        };
+        const currentLevel = node.defence_level;
+        const upgrade = upgrades[currentLevel];
+
+        this.selectedUpgradeNodeId = node.id;
+
+        if (this.nodeUpgradeTitle) {
+            this.nodeUpgradeTitle.textContent =
+                `Узел ${node.id} · защита ${currentLevel}`;
+        }
+
+        if (!upgrade) {
+            if (this.nodeUpgradeDetails) {
+                this.nodeUpgradeDetails.textContent =
+                    'Максимальный уровень защиты K3';
+            }
+            if (this.upgradeNodeBtn) {
+                this.upgradeNodeBtn.disabled = true;
+                this.upgradeNodeBtn.classList.add('hidden');
+            }
+        } else {
+            if (this.nodeUpgradeDetails) {
+                this.nodeUpgradeDetails.textContent =
+                    `${currentLevel} → ${upgrade.toLevel}. `
+                    + `Стоимость: ${upgrade.cost}`;
+            }
+            if (this.upgradeNodeBtn) {
+                this.upgradeNodeBtn.disabled = false;
+                this.upgradeNodeBtn.classList.remove('hidden');
+            }
+        }
+
+        this.nodeUpgradePanel?.classList.remove('hidden');
+    }
+
+    handleUpgradeNode() {
+        if (
+            !this.selectedUpgradeNodeId
+            || this.upgradeNodeBtn?.disabled
+        ) {
+            return;
+        }
+
+        const node = this.model.state.nodes[
+            this.selectedUpgradeNodeId
+        ];
+
+        if (!node || node.defence_level === 'K3') {
+            return;
+        }
+
+        this.network.upgradeNode(
+            this.selectedUpgradeNodeId
+        );
+    }
+
+    onNodeUpgraded(message) {
+        this.lobbyView.showToast(
+            'success',
+            `Защита узла улучшена: ${message.from_level} → ${message.to_level}`
+        );
+    }
+
+    refreshSelectedNodeUpgrade() {
+        if (!this.selectedUpgradeNodeId) {
+            return;
+        }
+
+        const node = this.model.state.nodes[
+            this.selectedUpgradeNodeId
+        ];
+        const playerId = this.getCurrentPlayerId();
+
+        if (!node || node.owner_id !== playerId) {
+            this.closeNodeUpgradePanel();
+            return;
+        }
+
+        this.showNodeUpgradeAction(node);
+    }
+
+    closeNodeUpgradePanel() {
+        this.nodeUpgradePanel?.classList.add('hidden');
+        this.selectedUpgradeNodeId = null;
     }
 
     onAttackStarted(message) {

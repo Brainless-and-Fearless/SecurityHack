@@ -18,8 +18,10 @@ from redis_repository import (
 )
 from game_logic import (
     cancel_attack,
+    get_upgrade_cost,
     start_attack,
     resolve_attack,
+    upgrade_node,
 )
 
 
@@ -35,9 +37,11 @@ from network_models import (
     AttackNodeMessage,
     AnswerTaskMessage,
     CancelAttackMessage,
+    UpgradeNodeMessage,
     AttackStartedMessage,
     AttackResolvedMessage,
     AttackCancelledMessage,
+    NodeUpgradedMessage,
 )
 
 def generate_player_id() -> str:
@@ -524,6 +528,109 @@ async def websocket_endpoint(websocket: WebSocket):
                         request_id=cancel_message.request_id,
                         task_id=cancel_message.task_id,
                         node_id=task.node_id,
+                    )
+
+                    await websocket.send_json(
+                        response.model_dump(mode="json")
+                    )
+
+                    await connection_manager.broadcast_to_room(
+                        room.id,
+                        {
+                            "type": "GAME_STATE",
+                            "game_id": room.game_id,
+                            "game": game.model_dump(
+                                mode="json"
+                            ),
+                        },
+                    )
+
+                continue
+
+
+            if message_type == "UPGRADE_NODE":
+                upgrade_message = UpgradeNodeMessage.model_validate(
+                    message
+                )
+
+                if current_room_id is None:
+                    await send_error(
+                        code="NOT_IN_ROOM",
+                        message="Player is not in a room.",
+                        request_id=upgrade_message.request_id,
+                    )
+                    continue
+
+                room = await websocket.app.state.room_repository.get_room(
+                    current_room_id
+                )
+
+                if room is None:
+                    await send_error(
+                        code="ROOM_NOT_FOUND",
+                        message="Room not found.",
+                        request_id=upgrade_message.request_id,
+                    )
+                    continue
+
+                if room.game_id is None:
+                    await send_error(
+                        code="GAME_NOT_STARTED",
+                        message="Game has not started.",
+                        request_id=upgrade_message.request_id,
+                    )
+                    continue
+
+                async with game_loop_manager.lock(
+                    room.game_id
+                ):
+                    game = await game_repository.get_game(
+                        room.game_id
+                    )
+
+                    if game is None:
+                        await send_error(
+                            code="GAME_STATE_NOT_FOUND",
+                            message="Game state not found.",
+                            request_id=upgrade_message.request_id,
+                        )
+                        continue
+
+                    node = game.nodes.get(upgrade_message.node_id)
+                    from_level = (
+                        node.defence_level
+                        if node is not None
+                        else None
+                    )
+
+                    try:
+                        to_level = upgrade_node(
+                            game,
+                            player_id,
+                            upgrade_message.node_id,
+                        )
+                    except ValueError as exc:
+                        await send_error(
+                            code=str(exc),
+                            message=str(exc),
+                            request_id=upgrade_message.request_id,
+                        )
+                        continue
+
+                    cost = get_upgrade_cost(from_level)
+
+                    await game_repository.save_game(
+                        room.game_id,
+                        game,
+                    )
+
+                    response = NodeUpgradedMessage(
+                        type="NODE_UPGRADED",
+                        request_id=upgrade_message.request_id,
+                        node_id=upgrade_message.node_id,
+                        from_level=from_level,
+                        to_level=to_level,
+                        cost=cost,
                     )
 
                     await websocket.send_json(

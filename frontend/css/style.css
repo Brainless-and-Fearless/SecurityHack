@@ -549,7 +549,8 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
 }
 
 /* Модальное окно задачи */
-#task-modal {
+#task-modal,
+#node-upgrade-panel {
     position: absolute;
     top: 50%;
     left: 50%;

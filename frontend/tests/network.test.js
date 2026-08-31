@@ -149,6 +149,36 @@ test('cancelAttack sends CANCEL_ATTACK message', () => {
 });
 
 
+test('upgradeNode sends server-authoritative UPGRADE_NODE request', () => {
+    const network = new Network(
+        {},
+        'ws://localhost/ws'
+    );
+
+    network.ws = {
+        readyState: WebSocket.OPEN,
+        send: vi.fn(),
+    };
+
+    network.upgradeNode('node_7');
+
+    expect(network.ws.send).toHaveBeenCalledTimes(1);
+
+    const sent = JSON.parse(
+        network.ws.send.mock.calls[0][0]
+    );
+
+    expect(sent).toEqual({
+        type: 'UPGRADE_NODE',
+        request_id: expect.any(String),
+        node_id: 'node_7',
+    });
+    expect(sent).not.toHaveProperty('cost');
+    expect(sent).not.toHaveProperty('to_level');
+    expect(sent).not.toHaveProperty('resources');
+});
+
+
 test('forwards ATTACK_STARTED to onAttackStarted handler', () => {
     const onAttackStarted = vi.fn();
 
@@ -243,6 +273,30 @@ test('forwards ATTACK_CANCELLED to onAttackCancelled handler', () => {
     expect(
         onAttackCancelled
     ).toHaveBeenCalledWith(message);
+});
+
+
+test('forwards NODE_UPGRADED to onNodeUpgraded handler', () => {
+    const onNodeUpgraded = vi.fn();
+    const network = new Network(
+        { onNodeUpgraded },
+        'ws://localhost/ws'
+    );
+    const message = {
+        type: 'NODE_UPGRADED',
+        request_id: 'req_upgrade',
+        node_id: 'node_7',
+        from_level: 'K1',
+        to_level: 'K2',
+        cost: 10,
+    };
+
+    network._handleMessage({
+        data: JSON.stringify(message),
+    });
+
+    expect(onNodeUpgraded).toHaveBeenCalledTimes(1);
+    expect(onNodeUpgraded).toHaveBeenCalledWith(message);
 });
 
 

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     },
 
     onAttackCancelled: vi.fn(),
+    onNodeUpgraded: vi.fn(),
 }));
 
 vi.mock('../js/Model.js', () => ({
@@ -61,6 +62,10 @@ vi.mock('../js/Controller.js', () => ({
 
         onAttackCancelled(message) {
             mocks.onAttackCancelled(message);
+        }
+
+        onNodeUpgraded(message) {
+            mocks.onNodeUpgraded(message);
         }
     },
 }));
@@ -117,6 +122,44 @@ describe('app bootstrap', () => {
 
         expect(
             mocks.onAttackCancelled
+        ).toHaveBeenCalledWith(message);
+
+        vi.unstubAllGlobals();
+    });
+
+
+    test('routes NODE_UPGRADED from Network to Controller', async () => {
+        vi.stubGlobal('document', {
+            addEventListener: vi.fn(
+                (event, callback) => {
+                    if (event === 'DOMContentLoaded') {
+                        callback();
+                    }
+                },
+            ),
+        });
+
+        await import('../js/app.js');
+
+        const message = {
+            type: 'NODE_UPGRADED',
+            request_id: 'req_upgrade',
+            node_id: 'node_7',
+            from_level: 'K1',
+            to_level: 'K2',
+            cost: 10,
+        };
+
+        expect(
+            mocks.capturedNetworkHandlers.value
+                .onNodeUpgraded
+        ).toEqual(expect.any(Function));
+
+        mocks.capturedNetworkHandlers.value
+            .onNodeUpgraded(message);
+
+        expect(
+            mocks.onNodeUpgraded
         ).toHaveBeenCalledWith(message);
 
         vi.unstubAllGlobals();

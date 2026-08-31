@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         onAttackCancelled: (message) =>
             controller.onAttackCancelled(message),
+
+        onNodeUpgraded: (message) =>
+            controller.onNodeUpgraded(message),
     };
 
     const network = new Network(handlers);

@@ -81,6 +81,7 @@ def add_player(
         nickname=nickname,
         resources=STARTING_RESOURCES,
         owned_node_ids=[start_node.id],
+        spawn_node_id=start_node.id,
     )
 
     start_node.owner_id = player.id
@@ -200,6 +201,13 @@ def can_attack(
 
     if node.owner_id == player_id:
         return False, "OWN_NODE"
+
+    if any(
+        owner.id != player_id
+        and owner.spawn_node_id == node_id
+        for owner in game.players.values()
+    ):
+        return False, "SPAWN_NODE_PROTECTED"
 
     if not _owned_neighbors(game, player_id, node_id):
         return False, "NODE_NOT_NEIGHBOR"

@@ -123,6 +123,56 @@ def start_two_player_websocket_attack(
     }
 
 
+def start_two_player_websocket_game(host_ws, player_ws):
+    host_ws.send_json(
+        {
+            "type": "CREATE_ROOM",
+            "request_id": "req_upgrade_create",
+            "nickname": "Alice",
+        }
+    )
+
+    host_ws.receive_json()  # ROOM_STATE
+    host_created = host_ws.receive_json()
+
+    player_ws.send_json(
+        {
+            "type": "JOIN_ROOM",
+            "request_id": "req_upgrade_join",
+            "room_id": host_created["room_id"],
+            "nickname": "Bob",
+        }
+    )
+
+    player_ws.receive_json()  # ROOM_STATE
+    player_joined = player_ws.receive_json()
+    host_ws.receive_json()  # updated ROOM_STATE
+
+    host_ws.send_json(
+        {
+            "type": "START_GAME",
+            "request_id": "req_upgrade_start",
+        }
+    )
+
+    host_ws.receive_json()  # GAME_STARTED
+    host_game_state = host_ws.receive_json()
+    player_ws.receive_json()  # GAME_STARTED
+    player_game_state = player_ws.receive_json()
+
+    assert host_game_state["type"] == "GAME_STATE"
+    assert player_game_state["type"] == "GAME_STATE"
+    assert host_game_state["game"] == player_game_state["game"]
+
+    return {
+        "room_id": host_created["room_id"],
+        "game_id": host_game_state["game_id"],
+        "game": host_game_state["game"],
+        "host_player_id": host_created["player_id"],
+        "player_id": player_joined["player_id"],
+    }
+
+
 def test_create_room_registers_player_connection():
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as websocket:
@@ -1012,3 +1062,279 @@ def test_player_cannot_cancel_another_players_attack_over_websocket():
                     "req_cancel_not_owned"
                 )
                 assert response["code"] == "TASK_NOT_OWNED"
+
+
+def test_upgrade_node_acknowledges_and_broadcasts_authoritative_state():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        original_lock = game_loop_manager.lock
+        game_loop_manager.start = Mock()
+        game_loop_manager.lock = Mock(wraps=original_lock)
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+                    game = started["game"]
+                    host_player_id = started["host_player_id"]
+                    node_id = game["players"][host_player_id][
+                        "owned_node_ids"
+                    ][0]
+                    starting_resources = game["players"][
+                        host_player_id
+                    ]["resources"]
+
+                    host_ws.send_json(
+                        {
+                            "type": "UPGRADE_NODE",
+                            "request_id": "req_upgrade",
+                            "node_id": node_id,
+                        }
+                    )
+
+                    acknowledgement = host_ws.receive_json()
+
+                    assert acknowledgement == {
+                        "type": "NODE_UPGRADED",
+                        "request_id": "req_upgrade",
+                        "node_id": node_id,
+                        "from_level": "K1",
+                        "to_level": "K2",
+                        "cost": 10.0,
+                    }
+
+                    host_game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
+
+                    assert host_game_state["type"] == "GAME_STATE"
+                    assert player_game_state["type"] == "GAME_STATE"
+                    assert (
+                        host_game_state["game"]
+                        == player_game_state["game"]
+                    )
+
+                    updated_game = host_game_state["game"]
+                    assert updated_game["nodes"][node_id][
+                        "defence_level"
+                    ] == "K2"
+                    assert updated_game["players"][host_player_id][
+                        "resources"
+                    ] == starting_resources - 10.0
+
+                    game_loop_manager.lock.assert_any_call(
+                        started["game_id"]
+                    )
+        finally:
+            game_loop_manager.start = original_start
+            game_loop_manager.lock = original_lock
+
+
+def test_player_cannot_upgrade_enemy_node_over_websocket():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+                    game = started["game"]
+                    host_player_id = started["host_player_id"]
+                    node_id = game["players"][host_player_id][
+                        "owned_node_ids"
+                    ][0]
+
+                    for request_id in (
+                        "req_enemy_upgrade",
+                        "req_enemy_upgrade_probe",
+                    ):
+                        player_ws.send_json(
+                            {
+                                "type": "UPGRADE_NODE",
+                                "request_id": request_id,
+                                "node_id": node_id,
+                            }
+                        )
+
+                        response = player_ws.receive_json()
+                        assert response["type"] == "ERROR"
+                        assert response["request_id"] == request_id
+                        assert response["code"] == "NOT_NODE_OWNER"
+
+                    host_ws.send_json(
+                        {
+                            "type": "UPGRADE_NODE",
+                            "request_id": "req_owner_upgrade",
+                            "node_id": node_id,
+                        }
+                    )
+
+                    acknowledgement = host_ws.receive_json()
+                    assert acknowledgement["type"] == "NODE_UPGRADED"
+                    assert acknowledgement["from_level"] == "K1"
+                    assert acknowledgement["to_level"] == "K2"
+
+                    host_game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
+                    assert (
+                        host_game_state["game"]
+                        == player_game_state["game"]
+                    )
+                    assert host_game_state["game"]["players"][
+                        host_player_id
+                    ]["resources"] == 10.0
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_upgrade_node_rejects_insufficient_resources_without_broadcast():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+                    host_player_id = started["host_player_id"]
+                    node_id = started["game"]["players"][host_player_id][
+                        "owned_node_ids"
+                    ][0]
+
+                    host_ws.send_json(
+                        {
+                            "type": "UPGRADE_NODE",
+                            "request_id": "req_upgrade_to_k2",
+                            "node_id": node_id,
+                        }
+                    )
+                    acknowledgement = host_ws.receive_json()
+                    assert acknowledgement["type"] == "NODE_UPGRADED"
+                    host_game_state = host_ws.receive_json()
+                    player_ws.receive_json()  # GAME_STATE
+
+                    assert host_game_state["game"]["nodes"][node_id][
+                        "defence_level"
+                    ] == "K2"
+                    assert host_game_state["game"]["players"][
+                        host_player_id
+                    ]["resources"] == 10.0
+
+                    for request_id in (
+                        "req_upgrade_without_resources",
+                        "req_upgrade_without_resources_probe",
+                    ):
+                        host_ws.send_json(
+                            {
+                                "type": "UPGRADE_NODE",
+                                "request_id": request_id,
+                                "node_id": node_id,
+                            }
+                        )
+
+                        response = host_ws.receive_json()
+                        assert response["type"] == "ERROR"
+                        assert response["request_id"] == request_id
+                        assert response["code"] == (
+                            "INSUFFICIENT_RESOURCES"
+                        )
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_enemy_spawn_is_protected_and_normal_attack_still_starts():
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    started = start_two_player_websocket_game(
+                        host_ws,
+                        player_ws,
+                    )
+                    game = started["game"]
+                    alice_id = started["host_player_id"]
+                    bob_id = started["player_id"]
+                    alice_spawn_id = game["players"][alice_id][
+                        "spawn_node_id"
+                    ]
+                    bob_spawn_id = game["players"][bob_id][
+                        "spawn_node_id"
+                    ]
+
+                    player_ws.send_json(
+                        {
+                            "type": "ATTACK_NODE",
+                            "request_id": "req_attack_spawn",
+                            "node_id": alice_spawn_id,
+                        }
+                    )
+
+                    rejected = player_ws.receive_json()
+                    assert rejected["type"] == "ERROR"
+                    assert rejected["request_id"] == "req_attack_spawn"
+                    assert rejected["code"] == "SPAWN_NODE_PROTECTED"
+
+                    spawn_ids = {
+                        player["spawn_node_id"]
+                        for player in game["players"].values()
+                    }
+                    normal_target_id = next(
+                        node_id
+                        for node_id in game["nodes"][bob_spawn_id][
+                            "neighbor_ids"
+                        ]
+                        if node_id not in spawn_ids
+                        and game["nodes"][node_id]["owner_id"] != bob_id
+                    )
+
+                    player_ws.send_json(
+                        {
+                            "type": "ATTACK_NODE",
+                            "request_id": "req_attack_normal",
+                            "node_id": normal_target_id,
+                        }
+                    )
+
+                    attack_started = player_ws.receive_json()
+                    assert attack_started["type"] == "ATTACK_STARTED"
+                    assert attack_started["request_id"] == (
+                        "req_attack_normal"
+                    )
+                    assert attack_started["node_id"] == normal_target_id
+
+                    player_game_state = player_ws.receive_json()
+                    host_game_state = host_ws.receive_json()
+                    assert (
+                        player_game_state["game"]
+                        == host_game_state["game"]
+                    )
+
+                    updated_game = player_game_state["game"]
+                    assert updated_game["nodes"][alice_spawn_id][
+                        "owner_id"
+                    ] == alice_id
+                    assert updated_game["nodes"][alice_spawn_id][
+                        "active_attack_player_id"
+                    ] is None
+                    assert all(
+                        task["node_id"] != alice_spawn_id
+                        for task in updated_game["tasks"].values()
+                    )
+        finally:
+            game_loop_manager.start = original_start

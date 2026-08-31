@@ -145,6 +145,10 @@ export class Network {
                 this.handlers.onAttackCancelled?.(data);
                 break;
 
+            case 'NODE_UPGRADED':
+                this.handlers.onNodeUpgraded?.(data);
+                break;
+
             case 'ERROR':
                 this.handlers.onError && this.handlers.onError(data.message || 'Неизвестная ошибка сервера');
                 break;
@@ -222,6 +226,13 @@ export class Network {
         this._send('CANCEL_ATTACK', {
             request_id: this._requestId(),
             task_id: taskId,
+        });
+    }
+
+    upgradeNode(nodeId) {
+        this._send('UPGRADE_NODE', {
+            request_id: this._requestId(),
+            node_id: nodeId,
         });
     }
 }

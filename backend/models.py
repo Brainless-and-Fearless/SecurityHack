@@ -41,6 +41,8 @@ class Player(BaseModel):
 
     owned_node_ids: list[str] = Field(default_factory=list)
 
+    spawn_node_id: Optional[str] = None
+
 
 class Room(BaseModel):
     id: str

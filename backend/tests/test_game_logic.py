@@ -12,6 +12,8 @@ from models import (
     TaskTemplate,
 )
 from game_logic import (
+    K1_TO_K2_COST,
+    K2_TO_K3_COST,
     MAX_RESOURCES,
     RESOURCE_INCOME_PER_NODE,
     create_game,
@@ -66,9 +68,9 @@ def create_test_game():
     """
     Create a small graph for testing:
 
-        A --- B --- C
+        A --- B --- C --- D
 
-    A, B and C are connected in a line.
+    The nodes are connected in a line.
     """
 
     nodes = [
@@ -82,7 +84,11 @@ def create_test_game():
         ),
         Node(
             id="C",
-            neighbor_ids=["B"],
+            neighbor_ids=["B", "D"],
+        ),
+        Node(
+            id="D",
+            neighbor_ids=["C"],
         ),
     ]
 
@@ -143,6 +149,36 @@ def create_player_with_two_attack_targets_game():
     return game
 
 
+def create_spawn_protection_test_game():
+    """Create A---B---C with A/C as spawns and B owned by Alice."""
+    game = create_game(
+        [
+            Node(id="A", neighbor_ids=["B"]),
+            Node(id="B", neighbor_ids=["A", "C"]),
+            Node(id="C", neighbor_ids=["B"]),
+        ]
+    )
+
+    alice = add_player(
+        game,
+        "player_1",
+        "Alice",
+        start_node_id="A",
+    )
+    add_player(
+        game,
+        "player_2",
+        "Bob",
+        start_node_id="C",
+    )
+
+    game.nodes["B"].owner_id = alice.id
+    alice.owned_node_ids.append("B")
+    start_game(game)
+
+    return game
+
+
 def prepare_two_player_game():
     """
     Create and start a game with two players.
@@ -150,8 +186,21 @@ def prepare_two_player_game():
 
     game = create_test_game()
 
-    add_player(game, "player_1", "Alice")
-    add_player(game, "player_2", "Bob")
+    add_player(
+        game,
+        "player_1",
+        "Alice",
+        start_node_id="A",
+    )
+    bob = add_player(
+        game,
+        "player_2",
+        "Bob",
+        start_node_id="D",
+    )
+
+    game.nodes["B"].owner_id = bob.id
+    bob.owned_node_ids.append("B")
 
     start_game(game)
 
@@ -203,6 +252,7 @@ def test_player_receives_starting_node():
 
     node_id = player.owned_node_ids[0]
 
+    assert player.spawn_node_id == node_id
     assert game.nodes[node_id].owner_id == "player_1"
     assert game.nodes[node_id].defence_level == DefenceLevel.K1
 
@@ -321,6 +371,94 @@ def test_player_cannot_start_second_simultaneous_attack():
             "C",
             task_manager,
         )
+
+
+def test_enemy_spawn_node_is_protected_without_mutating_attack_state():
+    game = prepare_two_player_game()
+    task_manager = create_test_task_manager()
+    alice = game.players["player_1"]
+    bob = game.players["player_2"]
+    game_before_attack = game.model_copy(deep=True)
+
+    with pytest.raises(
+        ValueError,
+        match="SPAWN_NODE_PROTECTED",
+    ):
+        start_attack(
+            game,
+            bob.id,
+            alice.spawn_node_id,
+            task_manager,
+        )
+
+    assert game == game_before_attack
+    assert task_manager.tasks == {}
+
+
+def test_normal_enemy_node_remains_attackable():
+    game = create_spawn_protection_test_game()
+    task_manager = create_test_task_manager()
+
+    task = start_attack(
+        game,
+        "player_2",
+        "B",
+        task_manager,
+    )
+
+    assert task.node_id == "B"
+    assert game.nodes["B"].active_attack_player_id == "player_2"
+
+
+def test_spawn_node_can_still_be_upgraded_by_its_owner():
+    game = prepare_two_player_game()
+    alice = game.players["player_1"]
+    alice.resources = 100.0
+
+    new_level = upgrade_node(
+        game,
+        alice.id,
+        alice.spawn_node_id,
+    )
+
+    assert new_level == DefenceLevel.K2
+    assert game.nodes[alice.spawn_node_id].owner_id == alice.id
+
+    new_level = upgrade_node(
+        game,
+        alice.id,
+        alice.spawn_node_id,
+    )
+
+    assert new_level == DefenceLevel.K3
+    assert alice.resources == 70.0
+    assert game.nodes[alice.spawn_node_id].owner_id == alice.id
+
+
+def test_losing_non_spawn_nodes_keeps_spawn_owned():
+    game = create_spawn_protection_test_game()
+    task_manager = create_test_task_manager()
+    alice = game.players["player_1"]
+
+    task = start_attack(
+        game,
+        "player_2",
+        "B",
+        task_manager,
+    )
+    resolve_attack(
+        game,
+        "player_2",
+        task.id,
+        TaskResolution(
+            success=True,
+            explanation="Captured",
+        ),
+        task_manager,
+    )
+
+    assert alice.owned_node_ids == [alice.spawn_node_id]
+    assert game.nodes[alice.spawn_node_id].owner_id == alice.id
 
 
 # ---------------------------------------------------------------------------
@@ -635,6 +773,7 @@ def test_player_can_upgrade_node_from_k1_to_k2():
     starting_resources = player.resources
 
     node_id = player.owned_node_ids[0]
+    original_owner_id = game.nodes[node_id].owner_id
 
     new_level = upgrade_node(
         game,
@@ -645,7 +784,8 @@ def test_player_can_upgrade_node_from_k1_to_k2():
     assert new_level == DefenceLevel.K2
     assert game.nodes[node_id].defence_level == DefenceLevel.K2
 
-    assert player.resources == starting_resources - 10
+    assert player.resources == starting_resources - K1_TO_K2_COST
+    assert game.nodes[node_id].owner_id == original_owner_id
 
 
 def test_player_can_upgrade_node_from_k2_to_k3():
@@ -656,21 +796,18 @@ def test_player_can_upgrade_node_from_k2_to_k3():
 
     node_id = player.owned_node_ids[0]
 
-    upgrade_node(
+    game.nodes[node_id].defence_level = DefenceLevel.K2
+    starting_resources = player.resources
+
+    new_level = upgrade_node(
         game,
         "player_1",
         node_id,
     )
 
-    upgrade_node(
-        game,
-        "player_1",
-        node_id,
-    )
-
+    assert new_level == DefenceLevel.K3
     assert game.nodes[node_id].defence_level == DefenceLevel.K3
-
-    assert player.resources == 70
+    assert player.resources == starting_resources - K2_TO_K3_COST
 
 
 def test_player_cannot_upgrade_k3():
@@ -693,6 +830,8 @@ def test_player_cannot_upgrade_k3():
         node_id,
     )
 
+    resources_before_rejected_upgrade = player.resources
+
     with pytest.raises(
         ValueError,
         match="MAX_DEFENCE_REACHED",
@@ -703,6 +842,8 @@ def test_player_cannot_upgrade_k3():
             node_id,
         )
 
+    assert player.resources == resources_before_rejected_upgrade
+
 
 def test_player_cannot_upgrade_node_without_resources():
     game = prepare_two_player_game()
@@ -711,6 +852,7 @@ def test_player_cannot_upgrade_node_without_resources():
     node_id = player.owned_node_ids[0]
 
     player.resources = 0
+    game_before_upgrade = game.model_copy(deep=True)
 
     with pytest.raises(
         ValueError,
@@ -721,6 +863,87 @@ def test_player_cannot_upgrade_node_without_resources():
             "player_1",
             node_id,
         )
+
+    assert game == game_before_upgrade
+
+
+def test_player_cannot_upgrade_enemy_node_without_mutating_state():
+    game = prepare_two_player_game()
+    enemy_node_id = game.players["player_2"].owned_node_ids[0]
+    game_before_upgrade = game.model_copy(deep=True)
+
+    with pytest.raises(
+        ValueError,
+        match="NOT_NODE_OWNER",
+    ):
+        upgrade_node(
+            game,
+            "player_1",
+            enemy_node_id,
+        )
+
+    assert game == game_before_upgrade
+
+
+def test_player_cannot_upgrade_neutral_node_without_mutating_state():
+    game = prepare_two_player_game()
+    neutral_node_id = next(
+        node.id
+        for node in game.nodes.values()
+        if node.owner_id is None
+    )
+    game_before_upgrade = game.model_copy(deep=True)
+
+    with pytest.raises(
+        ValueError,
+        match="NOT_NODE_OWNER",
+    ):
+        upgrade_node(
+            game,
+            "player_1",
+            neutral_node_id,
+        )
+
+    assert game == game_before_upgrade
+
+
+@pytest.mark.parametrize(
+    ("upgrade_count", "expected_level", "expected_template_id"),
+    [
+        (1, DefenceLevel.K2, "test_k2"),
+        (2, DefenceLevel.K3, "test_k3"),
+    ],
+)
+def test_upgraded_defence_selects_matching_attack_task(
+    upgrade_count,
+    expected_level,
+    expected_template_id,
+):
+    game = prepare_two_player_game()
+    defender = game.players["player_2"]
+    defender.resources = 100.0
+    defended_node_id = next(
+        node_id
+        for node_id in defender.owned_node_ids
+        if node_id != defender.spawn_node_id
+    )
+
+    for _ in range(upgrade_count):
+        upgrade_node(
+            game,
+            defender.id,
+            defended_node_id,
+        )
+
+    task = start_test_attack(
+        game,
+        "player_1",
+        defended_node_id,
+        create_test_task_manager(),
+    )
+
+    assert task.defence_level == expected_level
+    assert task.template_id == expected_template_id
 
 
 # ---------------------------------------------------------------------------

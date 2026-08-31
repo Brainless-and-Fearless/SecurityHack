@@ -161,6 +161,21 @@ async def test_start_game_assigns_starting_nodes_to_all_players(
     assert len(player_1_nodes) == 1
     assert len(player_2_nodes) == 1
 
+    spawn_node_ids = {
+        game.players["player_1"].spawn_node_id,
+        game.players["player_2"].spawn_node_id,
+    }
+
+    assert None not in spawn_node_ids
+    assert len(spawn_node_ids) == 2
+
+    for player in game.players.values():
+        assert player.spawn_node_id in player.owned_node_ids
+        assert (
+            game.nodes[player.spawn_node_id].owner_id
+            == player.id
+        )
+
     assert player_1_nodes.isdisjoint(
         player_2_nodes
     )
@@ -221,6 +236,11 @@ async def test_start_game_uses_map_generator_spawn_nodes(
     }
 
     assert actual_spawn_nodes == expected_spawn_nodes
+
+    assert {
+        player.spawn_node_id
+        for player in game.players.values()
+    } == expected_spawn_nodes
 
 
 @pytest.mark.anyio
