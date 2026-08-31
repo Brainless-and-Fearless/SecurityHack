@@ -109,8 +109,11 @@
         </div>
     </div>
     <script>
+        const wsProtocol =
+            window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
         window.GAME_CONFIG = {
-            websocketUrl: 'ws://127.0.0.1:8000/ws',
+            websocketUrl: `${wsProtocol}//${window.location.host}/ws`,
         };
     </script>
 
