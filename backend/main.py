@@ -4,6 +4,7 @@ import logging
 import redis.asyncio as redis
 
 from game_service import GameService
+from game_loop import GameLoopManager
 from room_state import build_room_state
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -81,6 +82,12 @@ async def lifespan(app: FastAPI):
 
     connection_manager = ConnectionManager()
 
+    game_loop_manager = GameLoopManager(
+        game_repository,
+        connection_manager,
+        room_repository,
+    )
+
     app.state.redis = redis_client
     app.state.room_repository = room_repository
     app.state.game_repository = game_repository
@@ -88,12 +95,14 @@ async def lifespan(app: FastAPI):
     app.state.room_service = room_service
     app.state.task_manager = task_manager
     app.state.connection_manager = connection_manager
+    app.state.game_loop_manager = game_loop_manager
 
     logger.info("SecurityHack API started")
 
     try:
         yield
     finally:
+        await game_loop_manager.stop_all()
         await redis_client.aclose()
         logger.info("SecurityHack API stopped")
 
@@ -153,6 +162,9 @@ async def websocket_endpoint(websocket: WebSocket):
     )
     game_repository = (
         websocket.app.state.game_repository
+    )
+    game_loop_manager = (
+        websocket.app.state.game_loop_manager
     )
 
     async def send_error(
@@ -328,10 +340,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     room.id,
                     {
                         "type": "GAME_STATE",
+                        "game_id": room.game_id,
                         "game": game.model_dump(
                             mode="json"
                         ),
                     },
+                )
+
+                game_loop_manager.start(
+                    room.id,
+                    room.game_id,
                 )
 
                 continue
@@ -369,59 +387,62 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     continue
 
-                game = await game_repository.get_game(
+                async with game_loop_manager.lock(
                     room.game_id
-                )
-
-                if game is None:
-                    await send_error(
-                        code="GAME_STATE_NOT_FOUND",
-                        message="Game state not found.",
-                        request_id=attack_message.request_id,
+                ):
+                    game = await game_repository.get_game(
+                        room.game_id
                     )
-                    continue
 
-                try:
-                    task = start_attack(
+                    if game is None:
+                        await send_error(
+                            code="GAME_STATE_NOT_FOUND",
+                            message="Game state not found.",
+                            request_id=attack_message.request_id,
+                        )
+                        continue
+
+                    try:
+                        task = start_attack(
+                            game,
+                            player_id,
+                            attack_message.node_id,
+                            task_manager=websocket.app.state.task_manager,
+                        )
+                    except ValueError as exc:
+                        await send_error(
+                            code=str(exc),
+                            message=str(exc),
+                            request_id=attack_message.request_id,
+                        )
+                        continue
+
+                    await game_repository.save_game(
+                        room.game_id,
                         game,
-                        player_id,
-                        attack_message.node_id,
-                        task_manager=websocket.app.state.task_manager,
                     )
-                except ValueError as exc:
-                    await send_error(
-                        code=str(exc),
-                        message=str(exc),
+
+                    response = AttackStartedMessage(
+                        type="ATTACK_STARTED",
                         request_id=attack_message.request_id,
+                        node_id=task.node_id,
+                        task=task,
                     )
-                    continue
 
-                await game_repository.save_game(
-                    room.game_id,
-                    game,
-                )
+                    await websocket.send_json(
+                        response.model_dump(mode="json")
+                    )
 
-                response = AttackStartedMessage(
-                    type="ATTACK_STARTED",
-                    request_id=attack_message.request_id,
-                    node_id=task.node_id,
-                    task=task,
-                )
-
-                await websocket.send_json(
-                    response.model_dump(mode="json")
-                )
-
-                await connection_manager.broadcast_to_room(
-                    room.id,
-                    {
-                        "type": "GAME_STATE",
-                        "game_id": room.game_id,
-                        "game": game.model_dump(
-                            mode="json"
-                        ),
-                    },
-                )
+                    await connection_manager.broadcast_to_room(
+                        room.id,
+                        {
+                            "type": "GAME_STATE",
+                            "game_id": room.game_id,
+                            "game": game.model_dump(
+                                mode="json"
+                            ),
+                        },
+                    )
 
                 continue
 
@@ -459,63 +480,66 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     continue
 
-                game = await game_repository.get_game(
+                async with game_loop_manager.lock(
                     room.game_id
-                )
-
-                if game is None:
-                    await send_error(
-                        code="GAME_STATE_NOT_FOUND",
-                        message="Game state not found.",
-                        request_id=cancel_message.request_id,
+                ):
+                    game = await game_repository.get_game(
+                        room.game_id
                     )
-                    continue
 
-                task = game.tasks.get(
-                    cancel_message.task_id
-                )
+                    if game is None:
+                        await send_error(
+                            code="GAME_STATE_NOT_FOUND",
+                            message="Game state not found.",
+                            request_id=cancel_message.request_id,
+                        )
+                        continue
 
-                try:
-                    cancel_attack(
+                    task = game.tasks.get(
+                        cancel_message.task_id
+                    )
+
+                    try:
+                        cancel_attack(
+                            game,
+                            player_id,
+                            cancel_message.task_id,
+                            websocket.app.state.task_manager,
+                        )
+                    except ValueError as exc:
+                        await send_error(
+                            code=str(exc),
+                            message=str(exc),
+                            request_id=cancel_message.request_id,
+                        )
+                        continue
+
+                    await game_repository.save_game(
+                        room.game_id,
                         game,
-                        player_id,
-                        cancel_message.task_id,
-                        websocket.app.state.task_manager,
                     )
-                except ValueError as exc:
-                    await send_error(
-                        code=str(exc),
-                        message=str(exc),
+
+                    response = AttackCancelledMessage(
+                        type="ATTACK_CANCELLED",
                         request_id=cancel_message.request_id,
+                        task_id=cancel_message.task_id,
+                        node_id=task.node_id,
                     )
-                    continue
 
-                await game_repository.save_game(
-                    room.game_id,
-                    game,
-                )
+                    await websocket.send_json(
+                        response.model_dump(mode="json")
+                    )
 
-                response = AttackCancelledMessage(
-                    type="ATTACK_CANCELLED",
-                    request_id=cancel_message.request_id,
-                    task_id=cancel_message.task_id,
-                    node_id=task.node_id,
-                )
-
-                await websocket.send_json(
-                    response.model_dump(mode="json")
-                )
-
-                await connection_manager.broadcast_to_room(
-                    room.id,
-                    {
-                        "type": "GAME_STATE",
-                        "game_id": room.game_id,
-                        "game": game.model_dump(
-                            mode="json"
-                        ),
-                    },
-                )
+                    await connection_manager.broadcast_to_room(
+                        room.id,
+                        {
+                            "type": "GAME_STATE",
+                            "game_id": room.game_id,
+                            "game": game.model_dump(
+                                mode="json"
+                            ),
+                        },
+                    )
 
                 continue
 
@@ -553,78 +577,81 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     continue
 
-                game = await game_repository.get_game(
+                async with game_loop_manager.lock(
                     room.game_id
-                )
-
-                if game is None:
-                    await send_error(
-                        code="GAME_STATE_NOT_FOUND",
-                        message="Game state not found.",
-                        request_id=answer_message.request_id,
-                    )
-                    continue
-
-                task_manager = websocket.app.state.task_manager
-
-                try:
-                    task = task_manager.get_task(
-                        answer_message.task_id
+                ):
+                    game = await game_repository.get_game(
+                        room.game_id
                     )
 
-                    node_id = task.node_id
+                    if game is None:
+                        await send_error(
+                            code="GAME_STATE_NOT_FOUND",
+                            message="Game state not found.",
+                            request_id=answer_message.request_id,
+                        )
+                        continue
 
-                    resolution = task_manager.check_answer(
-                        answer_message.task_id,
-                        player_id,
-                        answer_message.answer,
-                    )
+                    task_manager = websocket.app.state.task_manager
 
-                    score_change = resolve_attack(
+                    try:
+                        task = task_manager.get_task(
+                            answer_message.task_id
+                        )
+
+                        node_id = task.node_id
+
+                        resolution = task_manager.check_answer(
+                            answer_message.task_id,
+                            player_id,
+                            answer_message.answer,
+                        )
+
+                        score_change = resolve_attack(
+                            game,
+                            player_id,
+                            answer_message.task_id,
+                            resolution,
+                            task_manager,
+                        )
+
+                    except ValueError as exc:
+                        await send_error(
+                            code=str(exc),
+                            message=str(exc),
+                            request_id=answer_message.request_id,
+                        )
+                        continue
+
+                    await game_repository.save_game(
+                        room.game_id,
                         game,
-                        player_id,
-                        answer_message.task_id,
-                        resolution,
-                        task_manager,
                     )
 
-                except ValueError as exc:
-                    await send_error(
-                        code=str(exc),
-                        message=str(exc),
+                    response = AttackResolvedMessage(
+                        type="ATTACK_RESOLVED",
                         request_id=answer_message.request_id,
+                        node_id=node_id,
+                        success=resolution.success,
+                        score_change=score_change,
+                        theory=resolution.theory,
+                        explanation=resolution.explanation,
                     )
-                    continue
 
-                await game_repository.save_game(
-                    room.game_id,
-                    game,
-                )
+                    await websocket.send_json(
+                        response.model_dump(mode="json")
+                    )
 
-                response = AttackResolvedMessage(
-                    type="ATTACK_RESOLVED",
-                    request_id=answer_message.request_id,
-                    node_id=node_id,
-                    success=resolution.success,
-                    score_change=score_change,
-                    theory=resolution.theory,
-                    explanation=resolution.explanation,
-                )
-
-                await websocket.send_json(
-                    response.model_dump(mode="json")
-                )
-
-                await connection_manager.broadcast_to_room(
-                    room.id,
-                    {
-                        "type": "GAME_STATE",
-                        "game_id": room.game_id,
-                        "game": game.model_dump(
-                            mode="json"
-                        ),
-                    },
-                )
+                    await connection_manager.broadcast_to_room(
+                        room.id,
+                        {
+                            "type": "GAME_STATE",
+                            "game_id": room.game_id,
+                            "game": game.model_dump(
+                                mode="json"
+                            ),
+                        },
+                    )
 
                 continue
             

@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 from fastapi.testclient import TestClient
 from network_models import RoomStateMessage
 from main import app
@@ -474,6 +476,68 @@ def test_host_can_start_game_and_all_players_receive_game_state():
                 for node_id, node in game["nodes"].items():
                     assert node["id"] == node_id
                     assert node["defence_level"] == "K1"
+
+
+def test_start_game_launches_runtime_once_for_created_game():
+    with TestClient(app) as client:
+        original_manager = getattr(
+            app.state,
+            "game_loop_manager",
+            None,
+        )
+        runtime = Mock()
+        app.state.game_loop_manager = runtime
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                host_ws.send_json(
+                    {
+                        "type": "CREATE_ROOM",
+                        "request_id": "req_runtime_create",
+                        "nickname": "Alice",
+                    }
+                )
+                host_ws.receive_json()
+                created = host_ws.receive_json()
+
+                with client.websocket_connect("/ws") as player_ws:
+                    player_ws.send_json(
+                        {
+                            "type": "JOIN_ROOM",
+                            "request_id": "req_runtime_join",
+                            "room_id": created["room_id"],
+                            "nickname": "Bob",
+                        }
+                    )
+                    player_ws.receive_json()
+                    player_ws.receive_json()
+                    host_ws.receive_json()
+
+                    host_ws.send_json(
+                        {
+                            "type": "START_GAME",
+                            "request_id": "req_runtime_start",
+                        }
+                    )
+
+                    host_ws.receive_json()
+                    host_ws.receive_json()
+                    player_ws.receive_json()
+                    player_ws.receive_json()
+
+                    runtime.start.assert_called_once()
+                    room_id, game_id = (
+                        runtime.start.call_args.args
+                    )
+
+                    assert room_id == created["room_id"]
+                    assert isinstance(game_id, str)
+                    assert game_id
+        finally:
+            if original_manager is None:
+                del app.state.game_loop_manager
+            else:
+                app.state.game_loop_manager = original_manager
 
                     
 def test_player_can_start_attack_over_websocket():
