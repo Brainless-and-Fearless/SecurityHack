@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from models import DefenceLevel, TaskTemplate
 from task_manager import TaskManager
@@ -164,6 +166,7 @@ def test_task_manager_cycles_through_templates_for_same_defence_level():
 
 def test_task_pool_contains_valid_templates_for_all_defence_levels():
     assert TASK_POOL
+    assert len(TASK_POOL) == 75
 
     template_ids = [
         template.id
@@ -172,11 +175,25 @@ def test_task_pool_contains_valid_templates_for_all_defence_levels():
 
     assert len(template_ids) == len(set(template_ids))
 
+    question_texts = [
+        template.question
+        for template in TASK_POOL
+    ]
+
+    assert len(question_texts) == len(set(question_texts))
+
     for template in TASK_POOL:
+        assert isinstance(template, TaskTemplate)
+        assert template.category
         assert template.question
         assert template.answer
         assert template.explanation
         assert template.theory
+        assert not re.search(
+            r'ответьте\s*:\s*[«"]',
+            template.question,
+            re.IGNORECASE,
+        )
 
     difficulties = {
         template.difficulty
@@ -188,6 +205,12 @@ def test_task_pool_contains_valid_templates_for_all_defence_levels():
         DefenceLevel.K2,
         DefenceLevel.K3,
     }
+
+    for difficulty in DefenceLevel:
+        assert sum(
+            template.difficulty == difficulty
+            for template in TASK_POOL
+        ) == 25
 
 
 def test_task_manager_creates_active_task_from_template():
@@ -299,6 +322,101 @@ def create_answer_test_manager():
             )
         ]
     )    
+
+
+def create_alias_answer_test_manager():
+    return TaskManager(
+        [
+            TaskTemplate(
+                id="firewall_k1",
+                difficulty=DefenceLevel.K1,
+                category="NETWORK_SECURITY",
+                question="Что фильтрует сетевой трафик?",
+                answer="межсетевой экран",
+                accepted_answers=[
+                    "firewall",
+                    "защитный экран",
+                ],
+                explanation="Это межсетевой экран.",
+                theory="Он применяет правила фильтрации трафика.",
+            )
+        ]
+    )
+
+
+def check_k1_answer(manager, answer):
+    task = manager.create_task(
+        node_id="node_1",
+        player_id="player_1",
+        defence_level=DefenceLevel.K1,
+    )
+
+    return manager.check_answer(
+        task.id,
+        "player_1",
+        answer,
+    )
+
+
+def test_task_manager_accepts_canonical_answer_when_aliases_exist():
+    resolution = check_k1_answer(
+        create_alias_answer_test_manager(),
+        "межсетевой экран",
+    )
+
+    assert resolution.success is True
+
+
+def test_task_manager_accepts_explicit_answer_alias():
+    resolution = check_k1_answer(
+        create_alias_answer_test_manager(),
+        "firewall",
+    )
+
+    assert resolution.success is True
+
+
+def test_task_manager_normalizes_explicit_answer_alias():
+    resolution = check_k1_answer(
+        create_alias_answer_test_manager(),
+        "  ЗАЩИТНЫЙ   ЭКРАН  ",
+    )
+
+    assert resolution.success is True
+
+
+def test_task_manager_rejects_unlisted_answer_alias():
+    resolution = check_k1_answer(
+        create_alias_answer_test_manager(),
+        "сетевой фильтр",
+    )
+
+    assert resolution.success is False
+
+
+def test_task_template_accepted_answers_default_is_not_shared():
+    first = TaskTemplate(
+        id="first",
+        difficulty=DefenceLevel.K1,
+        category="TEST",
+        question="First?",
+        answer="first",
+        explanation="First.",
+        theory="First theory.",
+    )
+    second = TaskTemplate(
+        id="second",
+        difficulty=DefenceLevel.K1,
+        category="TEST",
+        question="Second?",
+        answer="second",
+        explanation="Second.",
+        theory="Second theory.",
+    )
+
+    first.accepted_answers.append("alias")
+
+    assert second.accepted_answers == []
 
 
 def test_task_manager_accepts_correct_answer():
@@ -457,7 +575,4 @@ def test_task_manager_cannot_remove_unknown_task():
         ValueError,
         match="TASK_NOT_FOUND",
     ):
-        manager.remove_task("missing_task")        
-
-
-        
+        manager.remove_task("missing_task")

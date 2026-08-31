@@ -106,6 +106,7 @@ class TaskTemplate(BaseModel):
     category: str
     question: str
     answer: str
+    accepted_answers: list[str] = Field(default_factory=list)
     explanation: str
     theory: str
 

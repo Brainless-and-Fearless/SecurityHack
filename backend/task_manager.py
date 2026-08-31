@@ -91,9 +91,15 @@ class TaskManager:
             task.template_id
         )
 
-        success = (
+        accepted_answers = [
+            template.answer,
+            *template.accepted_answers,
+        ]
+
+        success = any(
             normalized_answer
-            == self.normalize_answer(template.answer)
+            == self.normalize_answer(candidate)
+            for candidate in accepted_answers
         )
 
         if success:
