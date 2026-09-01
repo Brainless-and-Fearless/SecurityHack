@@ -112,12 +112,18 @@ export class AudioManager {
         this.music.volume = AUDIO_VOLUMES.music;
 
         const playback = this.music.play();
-        if (playback && typeof playback.catch === 'function') {
-            playback.catch(() => {
-                // Browser autoplay can reject playback until another user gesture.
-            });
+        if (!playback || typeof playback.then !== 'function') {
+            this.isMusicPlaying = true;
+            return;
         }
-        this.isMusicPlaying = true;
+
+        playback
+            .then(() => {
+                this.isMusicPlaying = true;
+            })
+            .catch(() => {
+                this.isMusicPlaying = false;
+            });
     }
 
     stopMusic(resetPosition = true) {
@@ -137,10 +143,18 @@ export class AudioManager {
         this.ticking.volume = AUDIO_VOLUMES.ticking;
 
         const playback = this.ticking.play();
-        if (playback && typeof playback.catch === 'function') {
-            playback.catch(() => {});
+        if (!playback || typeof playback.then !== 'function') {
+            this.isTickingPlaying = true;
+            return;
         }
-        this.isTickingPlaying = true;
+
+        playback
+            .then(() => {
+                this.isTickingPlaying = true;
+            })
+            .catch(() => {
+                this.isTickingPlaying = false;
+            });
     }
 
     stopTicking(resetPosition = true) {
@@ -154,7 +168,7 @@ export class AudioManager {
     updateMatchTimer(remainingSeconds) {
         if (remainingSeconds > 0 && remainingSeconds <= 30) {
             this.startTicking();
-        } else if (remainingSeconds > 30) {
+        } else if (remainingSeconds > 30 || remainingSeconds <= 0) {
             this.stopTicking();
         }
     }
