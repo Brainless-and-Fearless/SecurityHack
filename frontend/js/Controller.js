@@ -1,9 +1,12 @@
+import { AudioManager } from './AudioManager.js';
+
 export class Controller {
     constructor(model, view, lobbyView, network) {
         this.model = model;
         this.view = view;
         this.lobbyView = lobbyView;
         this.network = network;
+        this.audio = new AudioManager();
 
         this.gameScreen = document.getElementById('game-screen');
         this.playerName = document.getElementById('player-name');
@@ -145,6 +148,8 @@ export class Controller {
             return;
         }
 
+        this.audio.unlock();
+
         if (lv.entryMode === 'join') {
             const code = lv.roomCodeInput.value
                 .trim()
@@ -197,6 +202,8 @@ export class Controller {
             return;
         }
 
+        this.audio.playEffect('click');
+
         navigator.clipboard
             ?.writeText(this.room.roomCode)
             .catch(() => {});
@@ -210,6 +217,7 @@ export class Controller {
     }
 
     handleLeaveRoom() {
+        this.audio.resetForNewMatch();
         this.network.leaveRoom();
     }
 
@@ -222,6 +230,7 @@ export class Controller {
     }
 
     handleStartGame() {
+        this.audio.unlock();
         this.network.startGame();
     }
 
@@ -240,6 +249,9 @@ export class Controller {
         );
 
         this.updateHud();
+        this.audio.updateMatchTimer(
+            this.model.state.remainingTimeSeconds
+        );
 
         this.view.render(
             Object.values(this.model.state.nodes)
@@ -257,6 +269,10 @@ export class Controller {
 
             if (this.playerName && this.room?.you) {
                 this.playerName.textContent = this.room.you.name;
+            }
+
+            if (this.model.state.status === 'running') {
+                this.audio.startMusic();
             }
 
             this.isResumingSession = false;
@@ -287,6 +303,9 @@ export class Controller {
             ? this.room.you.name
             : 'Игрок';
 
+        this.audio.resetForNewMatch();
+        this.audio.startMusic();
+
         this.lobbyView.stopAmbientLoop();
         this.lobbyView.hideAll();
 
@@ -298,6 +317,9 @@ export class Controller {
             nickname;
 
         this.updateHud();
+        this.audio.updateMatchTimer(
+            this.model.state.remainingTimeSeconds
+        );
 
         this.view.render(
             Object.values(this.model.state.nodes)
@@ -430,6 +452,8 @@ export class Controller {
         if (nodeId === null) {
             return;
         }
+
+        this.audio.playEffect('click');
 
         const node = this.model.state.nodes[nodeId];
         const playerId = this.getCurrentPlayerId();
@@ -628,6 +652,8 @@ export class Controller {
         }
 
         if (message.success) {
+            this.audio.playEffect('success');
+
             this.taskTitle.textContent =
                 'Узел успешно захвачен';
 
@@ -646,6 +672,8 @@ export class Controller {
 
             return;
         }
+
+        this.audio.playEffect('wrong');
 
         this.taskTitle.textContent =
             'Попытка не удалась';
@@ -806,10 +834,13 @@ export class Controller {
         this.closeNodeUpgradePanel();
 
         const currentPlayerId = this.getCurrentPlayerId();
+        const isWinner =
+            message.winner_id !== null
+            && message.winner_id === currentPlayerId;
 
         if (message.winner_id === null) {
             this.gameFinishedTitle.textContent = 'Ничья';
-        } else if (message.winner_id === currentPlayerId) {
+        } else if (isWinner) {
             this.gameFinishedTitle.textContent = 'Победа';
         } else {
             this.gameFinishedTitle.textContent = 'Поражение';
@@ -833,6 +864,8 @@ export class Controller {
             `${winnerLine}Итоговый счёт:\n${scoreLines.join('\n')}`;
 
         this.gameFinishedPanel.classList.remove('hidden');
+
+        this.audio.playFinishSequence(isWinner);
     }
 
     onConnectionStateChange(state) {
