@@ -11,6 +11,83 @@ function createSessionStorage(initial = {}) {
     };
 }
 
+
+test('default reconnect timers preserve the browser global receiver', () => {
+    const setTimeoutHost = vi.fn(function (callback, delay) {
+        if (this !== globalThis) {
+            throw new TypeError('Illegal invocation');
+        }
+
+        expect(callback).toEqual(expect.any(Function));
+        expect(delay).toBe(500);
+        return 41;
+    });
+    const clearTimeoutHost = vi.fn(function (timerId) {
+        if (this !== globalThis) {
+            throw new TypeError('Illegal invocation');
+        }
+
+        expect(timerId).toBe(41);
+    });
+
+    vi.stubGlobal('setTimeout', setTimeoutHost);
+    vi.stubGlobal('clearTimeout', clearTimeoutHost);
+
+    try {
+        const network = new Network(
+            {},
+            'ws://localhost/ws',
+            {
+                storage: createSessionStorage({
+                    'securityhack.sessionToken': 'private-token',
+                }),
+            },
+        );
+
+        expect(() => network._scheduleReconnect()).not.toThrow();
+        expect(network.reconnectTimer).toBe(41);
+        expect(network.reconnectAttempt).toBe(1);
+
+        expect(() => network._cancelReconnect()).not.toThrow();
+        expect(network.reconnectTimer).toBeNull();
+        expect(setTimeoutHost).toHaveBeenCalledTimes(1);
+        expect(clearTimeoutHost).toHaveBeenCalledTimes(1);
+    } finally {
+        vi.unstubAllGlobals();
+    }
+});
+
+
+test('injected reconnect scheduler keeps existing delay and cancel semantics', () => {
+    const schedule = vi.fn(() => 'injected-timer');
+    const cancelSchedule = vi.fn();
+    const network = new Network(
+        {},
+        'ws://localhost/ws',
+        {
+            storage: createSessionStorage({
+                'securityhack.sessionToken': 'private-token',
+            }),
+            schedule,
+            cancelSchedule,
+        },
+    );
+
+    network._scheduleReconnect();
+
+    expect(schedule).toHaveBeenCalledWith(
+        expect.any(Function),
+        500,
+    );
+    expect(network.reconnectTimer).toBe('injected-timer');
+    expect(network.reconnectAttempt).toBe(1);
+
+    network._cancelReconnect();
+
+    expect(cancelSchedule).toHaveBeenCalledWith('injected-timer');
+    expect(network.reconnectTimer).toBeNull();
+});
+
 describe('Network', () => {
     test('forwards GAME_STATE to onGameState handler', () => {
         const onGameState = vi.fn();

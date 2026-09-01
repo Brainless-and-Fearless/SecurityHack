@@ -38,8 +38,12 @@ export class Network {
             ?? RECONNECT_DELAYS_MS;
         this.resumeTimeoutMs = options.resumeTimeoutMs
             ?? RESUME_TIMEOUT_MS;
-        this.schedule = options.schedule ?? setTimeout;
-        this.cancelSchedule = options.cancelSchedule ?? clearTimeout;
+        this.schedule = options.schedule ?? (
+            (callback, delay) => globalThis.setTimeout(callback, delay)
+        );
+        this.cancelSchedule = options.cancelSchedule ?? (
+            (timerId) => globalThis.clearTimeout(timerId)
+        );
         this.resumeTimeout = null;
         this.resumePhase = null;
         this.pendingLeaveRequestId = null;

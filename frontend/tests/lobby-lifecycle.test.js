@@ -51,6 +51,7 @@ test('real LobbyView supports the complete leave and next-preview lifecycle', ()
     };
 
     vi.stubGlobal('document', {
+        addEventListener: vi.fn(),
         getElementById: vi.fn(element),
         createElement: vi.fn(() => ({
             textContent: '',
@@ -88,6 +89,9 @@ test('real LobbyView supports the complete leave and next-preview lifecycle', ()
     lobbyView._drawMapPreview();
 
     const controllerContext = {
+        audio: {
+            resetForNewMatch: vi.fn(),
+        },
         network: {
             leaveRoom: vi.fn(),
         },
@@ -102,6 +106,10 @@ test('real LobbyView supports the complete leave and next-preview lifecycle', ()
             controllerContext
         );
     }).not.toThrow();
+
+    expect(
+        controllerContext.audio.resetForNewMatch
+    ).toHaveBeenCalledTimes(1);
 
     expect(lobbyView._room).not.toBeNull();
 

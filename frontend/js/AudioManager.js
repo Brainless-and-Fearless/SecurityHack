@@ -37,8 +37,13 @@ export class AudioManager {
         this.isUnlocked = false;
         this.isMusicPlaying = false;
         this.isTickingPlaying = false;
+        this._isMusicStarting = false;
+        this._isTickingStarting = false;
+        this._musicPlaybackGeneration = 0;
+        this._tickingPlaybackGeneration = 0;
         this.hasPlayedFinishSequence = false;
         this._unlockHandler = null;
+        this._finishAlarmEndedHandler = null;
 
         for (const effectName of ['success', 'click', 'win', 'alarm', 'wrong']) {
             this.effects.set(
@@ -104,29 +109,47 @@ export class AudioManager {
     }
 
     startMusic() {
-        if (this.isMusicPlaying) {
+        if (this.isMusicPlaying || this._isMusicStarting) {
             return;
         }
 
+        const playbackGeneration =
+            ++this._musicPlaybackGeneration;
+        this._isMusicStarting = true;
         this.music.loop = true;
         this.music.volume = AUDIO_VOLUMES.music;
 
         const playback = this.music.play();
         if (!playback || typeof playback.then !== 'function') {
             this.isMusicPlaying = true;
+            this._isMusicStarting = false;
             return;
         }
 
         playback
             .then(() => {
-                this.isMusicPlaying = true;
+                if (
+                    playbackGeneration
+                    === this._musicPlaybackGeneration
+                ) {
+                    this.isMusicPlaying = true;
+                    this._isMusicStarting = false;
+                }
             })
             .catch(() => {
-                this.isMusicPlaying = false;
+                if (
+                    playbackGeneration
+                    === this._musicPlaybackGeneration
+                ) {
+                    this.isMusicPlaying = false;
+                    this._isMusicStarting = false;
+                }
             });
     }
 
     stopMusic(resetPosition = true) {
+        this._musicPlaybackGeneration += 1;
+        this._isMusicStarting = false;
         this.music.pause();
         if (resetPosition) {
             this.music.currentTime = 0;
@@ -135,29 +158,47 @@ export class AudioManager {
     }
 
     startTicking() {
-        if (this.isTickingPlaying) {
+        if (this.isTickingPlaying || this._isTickingStarting) {
             return;
         }
 
+        const playbackGeneration =
+            ++this._tickingPlaybackGeneration;
+        this._isTickingStarting = true;
         this.ticking.loop = true;
         this.ticking.volume = AUDIO_VOLUMES.ticking;
 
         const playback = this.ticking.play();
         if (!playback || typeof playback.then !== 'function') {
             this.isTickingPlaying = true;
+            this._isTickingStarting = false;
             return;
         }
 
         playback
             .then(() => {
-                this.isTickingPlaying = true;
+                if (
+                    playbackGeneration
+                    === this._tickingPlaybackGeneration
+                ) {
+                    this.isTickingPlaying = true;
+                    this._isTickingStarting = false;
+                }
             })
             .catch(() => {
-                this.isTickingPlaying = false;
+                if (
+                    playbackGeneration
+                    === this._tickingPlaybackGeneration
+                ) {
+                    this.isTickingPlaying = false;
+                    this._isTickingStarting = false;
+                }
             });
     }
 
     stopTicking(resetPosition = true) {
+        this._tickingPlaybackGeneration += 1;
+        this._isTickingStarting = false;
         this.ticking.pause();
         if (resetPosition) {
             this.ticking.currentTime = 0;
@@ -219,24 +260,51 @@ export class AudioManager {
         alarm.currentTime = 0;
         alarm.volume = AUDIO_VOLUMES.alarm;
 
-        const playback = alarm.play();
-        if (!playback || typeof playback.then !== 'function') {
+        const finishAlarm = () => {
+            if (this._finishAlarmEndedHandler) {
+                alarm.removeEventListener(
+                    'ended',
+                    this._finishAlarmEndedHandler,
+                );
+                this._finishAlarmEndedHandler = null;
+            }
+
             if (isWinner) {
                 this.playEffect('win');
             }
+        };
+
+        this._finishAlarmEndedHandler = finishAlarm;
+        alarm.addEventListener('ended', finishAlarm, { once: true });
+
+        let playback;
+        try {
+            playback = alarm.play();
+        } catch {
+            finishAlarm();
+            return;
+        }
+
+        if (!playback || typeof playback.then !== 'function') {
             return;
         }
 
         playback
-            .catch(() => {})
-            .finally(() => {
-                if (isWinner) {
-                    this.playEffect('win');
-                }
+            .catch(() => {
+                finishAlarm();
             });
     }
 
     resetForNewMatch() {
+        const alarm = this.effects.get('alarm');
+        if (alarm && this._finishAlarmEndedHandler) {
+            alarm.removeEventListener(
+                'ended',
+                this._finishAlarmEndedHandler,
+            );
+            this._finishAlarmEndedHandler = null;
+        }
+
         this.stopTicking();
         this.stopMusic();
         this.hasPlayedFinishSequence = false;
