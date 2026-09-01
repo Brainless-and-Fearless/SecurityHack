@@ -21,6 +21,18 @@ from network_models import (
     GameStartedMessage,
     GameStateMessage,
     JoinRoomMessage,
+    ListKnowledgeMessage,
+    OpenKnowledgeMessage,
+    AnswerKnowledgeChallengeMessage,
+    KnowledgeCatalogMessage,
+    KnowledgeCatalogModule,
+    KnowledgeOpenedMessage,
+    KnowledgeOpenedModule,
+    KnowledgeLockedMessage,
+    KnowledgeLockedModule,
+    KnowledgeChallengePrompt,
+    KnowledgeChallengeFailedMessage,
+    KnowledgeUnlockedMessage,
     MapPreview,
     MapPreviewNode,
     NodeUpgradedMessage,
@@ -35,6 +47,94 @@ from network_models import (
     UpgradeNodeMessage,
     RoomPlayerState,
 )
+
+
+def test_knowledge_request_models_follow_request_id_contract():
+    list_message = ListKnowledgeMessage(
+        type="LIST_KNOWLEDGE",
+        request_id="req_list",
+    )
+    open_message = OpenKnowledgeMessage(
+        type="OPEN_KNOWLEDGE",
+        request_id="req_open",
+        module_id="modern_encryption",
+    )
+    answer_message = AnswerKnowledgeChallengeMessage(
+        type="ANSWER_KNOWLEDGE_CHALLENGE",
+        request_id="req_answer",
+        module_id="modern_encryption",
+        challenge_id="gate_caesar_009",
+        answer="token",
+    )
+
+    assert list_message.request_id == "req_list"
+    assert open_message.module_id == "modern_encryption"
+    assert answer_message.challenge_id == "gate_caesar_009"
+    assert answer_message.answer == "token"
+
+
+def test_knowledge_response_models_expose_only_protocol_safe_fields():
+    catalog_module = KnowledgeCatalogModule(
+        id="modern_encryption",
+        title="Modern encryption",
+        categories=["AEAD"],
+        is_locked=True,
+    )
+    opened_module = KnowledgeOpenedModule(
+        id="modern_encryption",
+        title="Modern encryption",
+        categories=["AEAD"],
+        content="Article",
+    )
+    locked_module = KnowledgeLockedModule(
+        id="modern_encryption",
+        title="Modern encryption",
+        categories=["AEAD"],
+    )
+    challenge = KnowledgeChallengePrompt(
+        id="gate_caesar_009",
+        question="Question",
+    )
+
+    messages = [
+        KnowledgeCatalogMessage(
+            type="KNOWLEDGE_CATALOG",
+            request_id="req_list",
+            modules=[catalog_module],
+        ),
+        KnowledgeOpenedMessage(
+            type="KNOWLEDGE_OPENED",
+            request_id="req_open",
+            module=opened_module,
+        ),
+        KnowledgeLockedMessage(
+            type="KNOWLEDGE_LOCKED",
+            request_id="req_open",
+            module=locked_module,
+            challenge=challenge,
+        ),
+        KnowledgeChallengeFailedMessage(
+            type="KNOWLEDGE_CHALLENGE_FAILED",
+            request_id="req_answer",
+            module_id="modern_encryption",
+            challenge_id="gate_caesar_009",
+        ),
+        KnowledgeUnlockedMessage(
+            type="KNOWLEDGE_UNLOCKED",
+            request_id="req_answer",
+            module=opened_module,
+        ),
+    ]
+
+    serialized = [message.model_dump(mode="json") for message in messages]
+
+    assert serialized[0]["modules"][0]["is_locked"] is True
+    assert "content" not in serialized[0]["modules"][0]
+    assert serialized[1]["module"]["content"] == "Article"
+    assert "content" not in serialized[2]["module"]
+    assert set(serialized[2]["challenge"]) == {"id", "question"}
+    assert serialized[3]["type"] == "KNOWLEDGE_CHALLENGE_FAILED"
+    assert serialized[4]["module"]["content"] == "Article"
 
 
 def test_create_room_message_accepts_valid_data():

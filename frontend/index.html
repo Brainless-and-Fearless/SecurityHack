@@ -32,6 +32,7 @@
             <div class="field-error" id="room-code-error"></div>
         </div>
         <button type="button" id="entry-submit" class="btn-primary">Создать комнату</button>
+        <button type="button" id="open-bestiary-btn" class="bestiary-close-btn">Бестиарий</button>
         <div class="field-error" id="entry-network-error"></div>
     </div>
 
@@ -109,6 +110,23 @@
             <p id="game-finished-details"></p>
         </div>
     </div>
+    <aside id="bestiary-panel" class="glass-panel bestiary-panel hidden" aria-label="Зашифрованный бестиарий">
+        <button id="bestiary-close-btn" type="button" class="bestiary-close-btn hidden">Вернуться</button>
+        <h2 class="bestiary-heading font-code">Бестиарий</h2>
+        <div id="bestiary-catalog" class="bestiary-catalog"></div>
+        <section id="bestiary-detail" class="bestiary-detail hidden">
+            <button id="bestiary-back-btn" type="button" class="btn-danger-ghost bestiary-back-btn">К каталогу</button>
+            <h3 id="bestiary-module-title" class="font-code"></h3>
+            <p id="bestiary-module-categories" class="bestiary-categories"></p>
+            <div id="bestiary-content" class="bestiary-content hidden"></div>
+            <div id="bestiary-challenge" class="bestiary-challenge hidden">
+                <p id="bestiary-challenge-question" class="bestiary-challenge-question"></p>
+                <input id="bestiary-challenge-answer" type="text" autocomplete="off" placeholder="Ответ">
+                <button id="bestiary-challenge-submit" type="button" class="btn-success">Расшифровать</button>
+                <p id="bestiary-challenge-feedback" class="bestiary-challenge-feedback" aria-live="polite"></p>
+            </div>
+        </section>
+    </aside>
     <script>
         const wsProtocol =
             window.location.protocol === 'https:' ? 'wss:' : 'ws';

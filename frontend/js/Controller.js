@@ -1,11 +1,12 @@
 import { AudioManager } from './AudioManager.js';
 
 export class Controller {
-    constructor(model, view, lobbyView, network) {
+    constructor(model, view, lobbyView, network, bestiaryView = null) {
         this.model = model;
         this.view = view;
         this.lobbyView = lobbyView;
         this.network = network;
+        this.bestiaryView = bestiaryView;
         this.audio = new AudioManager();
 
         this.gameScreen = document.getElementById('game-screen');
@@ -16,6 +17,9 @@ export class Controller {
         this.hudTimerItem = document.getElementById('hud-timer-item');
         this.connectionStatus = document.getElementById(
             'connection-status'
+        );
+        this.openBestiaryBtn = document.getElementById(
+            'open-bestiary-btn'
         );
 
         this.taskModal = document.getElementById('task-modal');
@@ -62,6 +66,7 @@ export class Controller {
         this.selectedUpgradeNodeId = null;
         this.isGameFinished = false;
         this.isResumingSession = false;
+        this.knowledgeRefreshAfterResume = false;
 
         this._prevResources = null;
         this._prevScore = null;
@@ -102,6 +107,11 @@ export class Controller {
             () => this.handleStartGame()
         );
 
+        this.openBestiaryBtn?.addEventListener(
+            'click',
+            () => this.openBestiaryFromEntry()
+        );
+
         lv.setEntryMode('create');
         lv.startAmbientLoop();
 
@@ -131,6 +141,39 @@ export class Controller {
                 'click',
                 (event) => this.handleNodeClick(event)
             );
+
+        this.bestiaryView?.setHandlers({
+            onModuleSelected: (moduleId) => (
+                this.handleKnowledgeModuleSelected(moduleId)
+            ),
+            onChallengeSubmit: (moduleId, challengeId, answer) => (
+                this.handleKnowledgeChallengeSubmit(
+                    moduleId,
+                    challengeId,
+                    answer,
+                )
+            ),
+            onCloseRequested: () => this.closeBestiaryToEntry(),
+        });
+    }
+
+    openBestiaryFromEntry() {
+        if (
+            this.network.connectionState === 'reconnecting'
+            || typeof this.network.listKnowledge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.lobbyView.hideAll?.();
+        this.bestiaryView?.showForEntry?.();
+        this.network.listKnowledge();
+        return true;
+    }
+
+    closeBestiaryToEntry() {
+        this.bestiaryView?.hide?.();
+        this.lobbyView.showEntryScreen?.();
     }
 
     handleEntrySubmit() {
@@ -180,6 +223,7 @@ export class Controller {
         const gameStatus = this.model?.state?.status;
 
         if (gameStatus !== 'running' && gameStatus !== 'finished') {
+            this.bestiaryView?.hide?.();
             this.lobbyView.showLobbyScreen();
         }
 
@@ -188,9 +232,12 @@ export class Controller {
 
     onSessionResumed() {
         this.isResumingSession = true;
+        this.knowledgeRefreshAfterResume = true;
     }
 
     onNetworkError(message) {
+        this.bestiaryView?.recoverChallengeSubmission?.();
+
         this.lobbyView.showToast(
             'error',
             message
@@ -223,6 +270,7 @@ export class Controller {
 
     onRoomLeft() {
         this.room = null;
+        this.bestiaryView?.hide?.();
         this.lobbyView.clearMapPreview();
 
         this.lobbyView.showEntryScreen();
@@ -266,6 +314,7 @@ export class Controller {
             this.lobbyView.stopAmbientLoop?.();
             this.lobbyView.hideAll?.();
             this.gameScreen?.classList.remove('hidden');
+            this.bestiaryView?.showForGame?.();
 
             if (this.playerName && this.room?.you) {
                 this.playerName.textContent = this.room.you.name;
@@ -312,6 +361,7 @@ export class Controller {
         this.gameScreen.classList.remove(
             'hidden'
         );
+        this.bestiaryView?.showForGame?.();
 
         this.playerName.textContent =
             nickname;
@@ -324,6 +374,75 @@ export class Controller {
         this.view.render(
             Object.values(this.model.state.nodes)
         );
+
+        this.requestKnowledgeCatalog();
+    }
+
+    isNetworkActionAvailable() {
+        return (
+            this.network.connectionState !== 'reconnecting'
+            && this.network.connectionState !== 'disconnected'
+        );
+    }
+
+    requestKnowledgeCatalog() {
+        if (
+            !this.isNetworkActionAvailable()
+            || typeof this.network.listKnowledge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.network.listKnowledge();
+        return true;
+    }
+
+    handleKnowledgeModuleSelected(moduleId) {
+        if (
+            !this.isNetworkActionAvailable()
+            || typeof this.network.openKnowledge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.network.openKnowledge(moduleId);
+        return true;
+    }
+
+    handleKnowledgeChallengeSubmit(moduleId, challengeId, answer) {
+        if (
+            !this.isNetworkActionAvailable()
+            || typeof this.network.answerKnowledgeChallenge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.network.answerKnowledgeChallenge(
+            moduleId,
+            challengeId,
+            answer,
+        );
+        return true;
+    }
+
+    onKnowledgeCatalog(message) {
+        this.bestiaryView?.renderCatalog(message.modules ?? []);
+    }
+
+    onKnowledgeOpened(message) {
+        this.bestiaryView?.renderOpened(message.module);
+    }
+
+    onKnowledgeLocked(message) {
+        this.bestiaryView?.renderLocked(message);
+    }
+
+    onKnowledgeChallengeFailed(message) {
+        this.bestiaryView?.showChallengeFailure(message);
+    }
+
+    onKnowledgeUnlocked(message) {
+        this.bestiaryView?.renderUnlocked(message.module);
     }
 
     updateHud() {
@@ -866,9 +985,16 @@ export class Controller {
         this.gameFinishedPanel.classList.remove('hidden');
 
         this.audio.playFinishSequence(isWinner);
+        this.requestKnowledgeCatalog();
     }
 
     onConnectionStateChange(state) {
+        if (state === 'connected' && this.knowledgeRefreshAfterResume) {
+            if (this.requestKnowledgeCatalog()) {
+                this.knowledgeRefreshAfterResume = false;
+            }
+        }
+
         if (!this.connectionStatus) {
             return;
         }

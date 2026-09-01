@@ -6,6 +6,12 @@ from network_models import RoomStateMessage
 from main import app
 from task_manager import TaskManager
 from models import DefenceLevel, GameStatus, TaskTemplate
+from knowledge_logic import select_access_challenge
+from knowledge_pool import (
+    ACCESS_CHALLENGES_BY_ID,
+    KNOWLEDGE_MODULES,
+    KNOWLEDGE_MODULES_BY_ID,
+)
 
 
 async def set_game_remaining_time(game_id, remaining_time_seconds):
@@ -208,6 +214,27 @@ def start_two_player_websocket_game(host_ws, player_ws):
         "host_session_token": host_created["session_token"],
         "player_session_token": player_joined["session_token"],
     }
+
+
+async def set_knowledge_test_state(
+    game_id,
+    player_id,
+    status=None,
+    unlocked_module_id=None,
+):
+    game = await app.state.game_repository.get_game(game_id)
+    if status is not None:
+        game.status = status
+    if unlocked_module_id is not None:
+        game.players[player_id].unlocked_knowledge_ids.append(
+            unlocked_module_id
+        )
+    await app.state.game_repository.save_game(game_id, game)
+
+
+async def get_knowledge_test_player(game_id, player_id):
+    game = await app.state.game_repository.get_game(game_id)
+    return game.players[player_id]
 
 
 def test_create_room_registers_player_connection():
@@ -1170,6 +1197,280 @@ def test_upgrade_node_acknowledges_and_broadcasts_authoritative_state():
             game_loop_manager.lock = original_lock
 
 
+def test_list_knowledge_is_free_without_running_game_and_leaks_no_content():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json({
+                "type": "LIST_KNOWLEDGE",
+                "request_id": "req_knowledge_list_free",
+            })
+            response = websocket.receive_json()
+
+            assert response["type"] == "KNOWLEDGE_CATALOG"
+            assert response["request_id"] == "req_knowledge_list_free"
+            assert len(response["modules"]) == 11
+            assert all(not module["is_locked"] for module in response["modules"])
+            assert all(
+                set(module) == {"id", "title", "categories", "is_locked"}
+                for module in response["modules"]
+            )
+            assert "content" not in str(response)
+            assert "accepted_answers" not in str(response)
+
+
+def test_open_knowledge_is_free_without_running_game():
+    module = KNOWLEDGE_MODULES[0]
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json({
+                "type": "OPEN_KNOWLEDGE",
+                "request_id": "req_knowledge_open_free",
+                "module_id": module.id,
+            })
+            response = websocket.receive_json()
+
+            assert response == {
+                "type": "KNOWLEDGE_OPENED",
+                "request_id": "req_knowledge_open_free",
+                "module": {
+                    "id": module.id,
+                    "title": module.title,
+                    "categories": module.categories,
+                    "content": module.content,
+                },
+            }
+
+
+def test_running_knowledge_catalog_uses_authoritative_player_unlocks():
+    module_id = "modern_encryption"
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                game_data = start_two_player_websocket_game(host_ws, player_ws)
+
+                host_ws.send_json({
+                    "type": "LIST_KNOWLEDGE",
+                    "request_id": "req_knowledge_list_locked",
+                })
+                locked_catalog = host_ws.receive_json()
+                locked_by_id = {
+                    module["id"]: module
+                    for module in locked_catalog["modules"]
+                }
+                assert locked_by_id[module_id]["is_locked"] is True
+
+                client.portal.call(
+                    set_knowledge_test_state,
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                    None,
+                    module_id,
+                )
+                host_ws.send_json({
+                    "type": "LIST_KNOWLEDGE",
+                    "request_id": "req_knowledge_list_unlocked",
+                })
+                unlocked_catalog = host_ws.receive_json()
+                unlocked_by_id = {
+                    module["id"]: module
+                    for module in unlocked_catalog["modules"]
+                }
+
+                assert unlocked_by_id[module_id]["is_locked"] is False
+                assert all(
+                    "content" not in module
+                    for module in unlocked_catalog["modules"]
+                )
+
+
+def test_running_locked_knowledge_module_returns_deterministic_safe_challenge():
+    module = KNOWLEDGE_MODULES_BY_ID["modern_encryption"]
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                game_data = start_two_player_websocket_game(host_ws, player_ws)
+                expected = select_access_challenge(
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                    module.id,
+                )
+                host_ws.send_json({
+                    "type": "OPEN_KNOWLEDGE",
+                    "request_id": "req_knowledge_locked",
+                    "module_id": module.id,
+                })
+                response = host_ws.receive_json()
+
+                assert response == {
+                    "type": "KNOWLEDGE_LOCKED",
+                    "request_id": "req_knowledge_locked",
+                    "module": {
+                        "id": module.id,
+                        "title": module.title,
+                        "categories": module.categories,
+                    },
+                    "challenge": {
+                        "id": expected.id,
+                        "question": expected.question,
+                    },
+                }
+                assert module.content not in str(response)
+                assert set(response["challenge"]) == {"id", "question"}
+                assert "accepted_answers" not in str(response)
+
+
+def test_knowledge_answer_failure_retry_unlock_and_idempotency():
+    module = KNOWLEDGE_MODULES_BY_ID["modern_encryption"]
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                game_data = start_two_player_websocket_game(host_ws, player_ws)
+                challenge = select_access_challenge(
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                    module.id,
+                )
+                before = client.portal.call(
+                    get_knowledge_test_player,
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                )
+
+                host_ws.send_json({
+                    "type": "ANSWER_KNOWLEDGE_CHALLENGE",
+                    "request_id": "req_knowledge_wrong",
+                    "module_id": module.id,
+                    "challenge_id": challenge.id,
+                    "answer": "definitely incorrect",
+                })
+                failed = host_ws.receive_json()
+                assert failed == {
+                    "type": "KNOWLEDGE_CHALLENGE_FAILED",
+                    "request_id": "req_knowledge_wrong",
+                    "module_id": module.id,
+                    "challenge_id": challenge.id,
+                }
+                after_failure = client.portal.call(
+                    get_knowledge_test_player,
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                )
+                assert after_failure.score == before.score
+                assert after_failure.resources == before.resources
+                assert after_failure.unlocked_knowledge_ids == []
+
+                correct_request = {
+                    "type": "ANSWER_KNOWLEDGE_CHALLENGE",
+                    "request_id": "req_knowledge_correct",
+                    "module_id": module.id,
+                    "challenge_id": challenge.id,
+                    "answer": f"  {challenge.answer.upper()}  ",
+                }
+                host_ws.send_json(correct_request)
+                unlocked = host_ws.receive_json()
+                assert unlocked["type"] == "KNOWLEDGE_UNLOCKED"
+                assert unlocked["module"]["id"] == module.id
+                assert unlocked["module"]["content"] == module.content
+
+                persisted = client.portal.call(
+                    get_knowledge_test_player,
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                )
+                assert persisted.unlocked_knowledge_ids == [module.id]
+
+                correct_request["request_id"] = "req_knowledge_repeat"
+                host_ws.send_json(correct_request)
+                repeated = host_ws.receive_json()
+                assert repeated["type"] == "KNOWLEDGE_UNLOCKED"
+                persisted = client.portal.call(
+                    get_knowledge_test_player,
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                )
+                assert persisted.unlocked_knowledge_ids.count(module.id) == 1
+
+                host_ws.send_json({
+                    "type": "OPEN_KNOWLEDGE",
+                    "request_id": "req_knowledge_open_after_unlock",
+                    "module_id": module.id,
+                })
+                opened = host_ws.receive_json()
+                assert opened["type"] == "KNOWLEDGE_OPENED"
+                assert opened["module"]["content"] == module.content
+
+
+def test_knowledge_answer_rejects_invalid_module_challenge_and_empty_answer():
+    module = KNOWLEDGE_MODULES_BY_ID["modern_encryption"]
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                game_data = start_two_player_websocket_game(host_ws, player_ws)
+                challenge = select_access_challenge(
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                    module.id,
+                )
+                mismatched_id = next(
+                    gate_id for gate_id in module.gate_ids
+                    if gate_id != challenge.id
+                )
+                invalid_requests = [
+                    ({
+                        "type": "ANSWER_KNOWLEDGE_CHALLENGE",
+                        "request_id": "req_knowledge_unknown_module",
+                        "module_id": "unknown_module",
+                        "challenge_id": challenge.id,
+                        "answer": challenge.answer,
+                    }, "KNOWLEDGE_MODULE_NOT_FOUND"),
+                    ({
+                        "type": "ANSWER_KNOWLEDGE_CHALLENGE",
+                        "request_id": "req_knowledge_mismatch",
+                        "module_id": module.id,
+                        "challenge_id": mismatched_id,
+                        "answer": challenge.answer,
+                    }, "KNOWLEDGE_CHALLENGE_MISMATCH"),
+                    ({
+                        "type": "ANSWER_KNOWLEDGE_CHALLENGE",
+                        "request_id": "req_knowledge_empty",
+                        "module_id": module.id,
+                        "challenge_id": challenge.id,
+                        "answer": "   \t  ",
+                    }, "ANSWER_EMPTY"),
+                ]
+
+                for request, expected_code in invalid_requests:
+                    host_ws.send_json(request)
+                    response = host_ws.receive_json()
+                    assert response["type"] == "ERROR"
+                    assert response["request_id"] == request["request_id"]
+                    assert response["code"] == expected_code
+
+
+@pytest.mark.parametrize("status", [GameStatus.WAITING, GameStatus.FINISHED])
+def test_non_running_game_allows_free_knowledge_reading(status):
+    module = KNOWLEDGE_MODULES_BY_ID["modern_encryption"]
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                game_data = start_two_player_websocket_game(host_ws, player_ws)
+                client.portal.call(
+                    set_knowledge_test_state,
+                    game_data["game_id"],
+                    game_data["host_player_id"],
+                    status,
+                )
+                host_ws.send_json({
+                    "type": "OPEN_KNOWLEDGE",
+                    "request_id": f"req_knowledge_{status.value}",
+                    "module_id": module.id,
+                })
+                response = host_ws.receive_json()
+
+                assert response["type"] == "KNOWLEDGE_OPENED"
+                assert response["module"]["content"] == module.content
+
+
 def test_player_cannot_upgrade_enemy_node_over_websocket():
     with TestClient(app) as client:
         game_loop_manager = app.state.game_loop_manager
@@ -1901,5 +2202,213 @@ def test_running_game_rejects_leave_without_mutating_session_or_membership():
                     assert started["host_player_id"] in room.player_ids
                     assert started["host_player_id"] in game.players
                     assert app.state.session_registry.get(token) is not None
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_knowledge_unlock_is_isolated_between_players_and_payloads_are_safe():
+    module = KNOWLEDGE_MODULES_BY_ID["modern_encryption"]
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+        try:
+            with client.websocket_connect("/ws") as alice_ws:
+                with client.websocket_connect("/ws") as bob_ws:
+                    started = start_two_player_websocket_game(
+                        alice_ws,
+                        bob_ws,
+                    )
+                    assert "content" not in str(started["game"])
+                    assert "accepted_answers" not in str(started["game"])
+
+                    for websocket, request_id in (
+                        (alice_ws, "req_alice_catalog"),
+                        (bob_ws, "req_bob_catalog_before"),
+                    ):
+                        websocket.send_json({
+                            "type": "LIST_KNOWLEDGE",
+                            "request_id": request_id,
+                        })
+                        catalog = websocket.receive_json()
+                        catalog_module = next(
+                            item for item in catalog["modules"]
+                            if item["id"] == module.id
+                        )
+                        assert catalog_module["is_locked"] is True
+                        assert set(catalog_module) == {
+                            "id", "title", "categories", "is_locked"
+                        }
+
+                    alice_ws.send_json({
+                        "type": "OPEN_KNOWLEDGE",
+                        "request_id": "req_alice_open_locked",
+                        "module_id": module.id,
+                    })
+                    locked = alice_ws.receive_json()
+                    assert locked["type"] == "KNOWLEDGE_LOCKED"
+                    assert set(locked["challenge"]) == {"id", "question"}
+                    assert "content" not in locked["module"]
+                    challenge = ACCESS_CHALLENGES_BY_ID[
+                        locked["challenge"]["id"]
+                    ]
+
+                    alice_ws.send_json({
+                        "type": "ANSWER_KNOWLEDGE_CHALLENGE",
+                        "request_id": "req_alice_unlock",
+                        "module_id": module.id,
+                        "challenge_id": challenge.id,
+                        "answer": challenge.answer,
+                    })
+                    assert alice_ws.receive_json()["type"] == (
+                        "KNOWLEDGE_UNLOCKED"
+                    )
+
+                    game = client.portal.call(
+                        app.state.game_repository.get_game,
+                        started["game_id"],
+                    )
+                    assert module.id in game.players[
+                        started["host_player_id"]
+                    ].unlocked_knowledge_ids
+                    assert module.id not in game.players[
+                        started["player_id"]
+                    ].unlocked_knowledge_ids
+
+                    bob_ws.send_json({
+                        "type": "LIST_KNOWLEDGE",
+                        "request_id": "req_bob_catalog_after",
+                    })
+                    bob_catalog = bob_ws.receive_json()
+                    assert next(
+                        item for item in bob_catalog["modules"]
+                        if item["id"] == module.id
+                    )["is_locked"] is True
+
+                    bob_ws.send_json({
+                        "type": "OPEN_KNOWLEDGE",
+                        "request_id": "req_bob_open_locked",
+                        "module_id": module.id,
+                    })
+                    bob_locked = bob_ws.receive_json()
+                    assert bob_locked["type"] == "KNOWLEDGE_LOCKED"
+                    assert set(bob_locked["challenge"]) == {
+                        "id", "question"
+                    }
+                    assert "content" not in bob_locked["module"]
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_knowledge_unlock_survives_real_session_resume():
+    module = KNOWLEDGE_MODULES_BY_ID["modern_encryption"]
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+        try:
+            with client.websocket_connect("/ws") as bob_ws:
+                with client.websocket_connect("/ws") as alice_ws:
+                    started = start_two_player_websocket_game(
+                        alice_ws,
+                        bob_ws,
+                    )
+                    challenge = select_access_challenge(
+                        started["game_id"],
+                        started["host_player_id"],
+                        module.id,
+                    )
+                    alice_ws.send_json({
+                        "type": "ANSWER_KNOWLEDGE_CHALLENGE",
+                        "request_id": "req_unlock_before_resume",
+                        "module_id": module.id,
+                        "challenge_id": challenge.id,
+                        "answer": challenge.answer,
+                    })
+                    assert alice_ws.receive_json()["type"] == (
+                        "KNOWLEDGE_UNLOCKED"
+                    )
+
+                with client.websocket_connect("/ws") as resumed_ws:
+                    resumed_ws.send_json({
+                        "type": "RESUME_SESSION",
+                        "request_id": "req_resume_knowledge",
+                        "session_token": started["host_session_token"],
+                    })
+                    assert resumed_ws.receive_json()["type"] == (
+                        "SESSION_RESUMED"
+                    )
+                    assert resumed_ws.receive_json()["type"] == "ROOM_STATE"
+                    game_state = resumed_ws.receive_json()
+                    assert module.id in game_state["game"]["players"][
+                        started["host_player_id"]
+                    ]["unlocked_knowledge_ids"]
+
+                    resumed_ws.send_json({
+                        "type": "LIST_KNOWLEDGE",
+                        "request_id": "req_catalog_after_resume",
+                    })
+                    catalog = resumed_ws.receive_json()
+                    assert next(
+                        item for item in catalog["modules"]
+                        if item["id"] == module.id
+                    )["is_locked"] is False
+
+                    resumed_ws.send_json({
+                        "type": "OPEN_KNOWLEDGE",
+                        "request_id": "req_open_after_resume",
+                        "module_id": module.id,
+                    })
+                    opened = resumed_ws.receive_json()
+                    assert opened["type"] == "KNOWLEDGE_OPENED"
+                    assert opened["module"]["content"] == module.content
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_finished_game_catalog_is_free_without_mutating_unlocks():
+    module = KNOWLEDGE_MODULES_BY_ID["modern_encryption"]
+    with TestClient(app) as client:
+        game_loop_manager = app.state.game_loop_manager
+        original_start = game_loop_manager.start
+        game_loop_manager.start = Mock()
+        try:
+            with client.websocket_connect("/ws") as alice_ws:
+                with client.websocket_connect("/ws") as bob_ws:
+                    started = start_two_player_websocket_game(
+                        alice_ws,
+                        bob_ws,
+                    )
+                    client.portal.call(
+                        set_knowledge_test_state,
+                        started["game_id"],
+                        started["host_player_id"],
+                        GameStatus.FINISHED,
+                    )
+
+                    alice_ws.send_json({
+                        "type": "LIST_KNOWLEDGE",
+                        "request_id": "req_finished_catalog",
+                    })
+                    catalog = alice_ws.receive_json()
+                    assert all(
+                        item["is_locked"] is False
+                        for item in catalog["modules"]
+                    )
+
+                    alice_ws.send_json({
+                        "type": "OPEN_KNOWLEDGE",
+                        "request_id": "req_finished_open",
+                        "module_id": module.id,
+                    })
+                    opened = alice_ws.receive_json()
+                    assert opened["type"] == "KNOWLEDGE_OPENED"
+
+                    player = client.portal.call(
+                        get_knowledge_test_player,
+                        started["game_id"],
+                        started["host_player_id"],
+                    )
+                    assert player.unlocked_knowledge_ids == []
         finally:
             game_loop_manager.start = original_start

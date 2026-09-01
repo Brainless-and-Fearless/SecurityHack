@@ -435,6 +435,26 @@ export class Network {
                 this.handlers.onGameFinished?.(data);
                 break;
 
+            case 'KNOWLEDGE_CATALOG':
+                this.handlers.onKnowledgeCatalog?.(data);
+                break;
+
+            case 'KNOWLEDGE_OPENED':
+                this.handlers.onKnowledgeOpened?.(data);
+                break;
+
+            case 'KNOWLEDGE_LOCKED':
+                this.handlers.onKnowledgeLocked?.(data);
+                break;
+
+            case 'KNOWLEDGE_CHALLENGE_FAILED':
+                this.handlers.onKnowledgeChallengeFailed?.(data);
+                break;
+
+            case 'KNOWLEDGE_UNLOCKED':
+                this.handlers.onKnowledgeUnlocked?.(data);
+                break;
+
             case 'ERROR':
                 if (
                     this.pendingLeaveRequestId === data.request_id
@@ -569,6 +589,45 @@ export class Network {
         this._send('UPGRADE_NODE', {
             request_id: this._requestId(),
             node_id: nodeId,
+        });
+    }
+
+    listKnowledge() {
+        const sendRequest = () => {
+            this._send('LIST_KNOWLEDGE', {
+                request_id: this._requestId(),
+            });
+            return true;
+        };
+
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            sendRequest();
+            return Promise.resolve(true);
+        }
+
+        return this._connect()
+            .then(sendRequest)
+            .catch(() => {
+                this.handlers.onError?.(
+                    'Не удалось подключиться к серверу'
+                );
+                return false;
+            });
+    }
+
+    openKnowledge(moduleId) {
+        this._send('OPEN_KNOWLEDGE', {
+            request_id: this._requestId(),
+            module_id: moduleId,
+        });
+    }
+
+    answerKnowledgeChallenge(moduleId, challengeId, answer) {
+        this._send('ANSWER_KNOWLEDGE_CHALLENGE', {
+            request_id: this._requestId(),
+            module_id: moduleId,
+            challenge_id: challengeId,
+            answer,
         });
     }
 }

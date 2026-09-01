@@ -12,6 +12,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from connection_manager import ConnectionManager
 from task_manager import TaskManager
 from task_pool import TASK_POOL
+from knowledge_pool import KNOWLEDGE_MODULES
+from knowledge_logic import (
+    build_knowledge_catalog_module,
+    build_knowledge_challenge_prompt,
+    build_locked_knowledge_module,
+    build_opened_knowledge_module,
+    get_knowledge_module,
+    get_running_knowledge_player,
+    is_challenge_answer_correct,
+    is_knowledge_module_locked,
+    normalize_knowledge_answer,
+    select_access_challenge,
+)
 from session_registry import SessionRegistry
 from presence_manager import PresenceManager
 from redis_repository import (
@@ -45,10 +58,22 @@ from network_models import (
     AnswerTaskMessage,
     CancelAttackMessage,
     UpgradeNodeMessage,
+    ListKnowledgeMessage,
+    OpenKnowledgeMessage,
+    AnswerKnowledgeChallengeMessage,
     AttackStartedMessage,
     AttackResolvedMessage,
     AttackCancelledMessage,
     NodeUpgradedMessage,
+    KnowledgeCatalogMessage,
+    KnowledgeCatalogModule,
+    KnowledgeOpenedMessage,
+    KnowledgeOpenedModule,
+    KnowledgeLockedMessage,
+    KnowledgeLockedModule,
+    KnowledgeChallengePrompt,
+    KnowledgeChallengeFailedMessage,
+    KnowledgeUnlockedMessage,
     GameFinishedMessage,
 )
 
@@ -215,6 +240,26 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.send_json(
             response.model_dump(mode="json")
         )
+
+    async def load_knowledge_game():
+        if current_room_id is None:
+            return None, None
+
+        room = await websocket.app.state.room_repository.get_room(
+            current_room_id
+        )
+        if room is None:
+            raise ValueError("ROOM_NOT_FOUND")
+        if room.game_id is None:
+            return None, None
+
+        async with game_loop_manager.lock(room.game_id):
+            game = await game_repository.get_game(room.game_id)
+
+        if game is None:
+            raise ValueError("GAME_STATE_NOT_FOUND")
+        return room.game_id, game
+
     try:
         while True:
             message = await websocket.receive_json()
@@ -567,6 +612,213 @@ async def websocket_endpoint(websocket: WebSocket):
                     room,
                     exclude_player_id=player_id,
                 )
+
+                continue
+
+            # ---------------------------------------------------------
+            # LIST_KNOWLEDGE
+            # ---------------------------------------------------------
+            if message_type == "LIST_KNOWLEDGE":
+                list_message = ListKnowledgeMessage.model_validate(message)
+
+                try:
+                    _, game = await load_knowledge_game()
+                    modules = [
+                        KnowledgeCatalogModule.model_validate(
+                            build_knowledge_catalog_module(
+                                module,
+                                is_knowledge_module_locked(
+                                    game,
+                                    player_id,
+                                    module.id,
+                                ),
+                            )
+                        )
+                        for module in KNOWLEDGE_MODULES
+                    ]
+                except ValueError as exc:
+                    await send_error(
+                        code=str(exc),
+                        message=str(exc),
+                        request_id=list_message.request_id,
+                    )
+                    continue
+
+                response = KnowledgeCatalogMessage(
+                    type="KNOWLEDGE_CATALOG",
+                    request_id=list_message.request_id,
+                    modules=modules,
+                )
+                await websocket.send_json(response.model_dump(mode="json"))
+                continue
+
+            # ---------------------------------------------------------
+            # OPEN_KNOWLEDGE
+            # ---------------------------------------------------------
+            if message_type == "OPEN_KNOWLEDGE":
+                open_message = OpenKnowledgeMessage.model_validate(message)
+
+                try:
+                    module = get_knowledge_module(open_message.module_id)
+                    game_id, game = await load_knowledge_game()
+                    is_locked = is_knowledge_module_locked(
+                        game,
+                        player_id,
+                        module.id,
+                    )
+                except ValueError as exc:
+                    await send_error(
+                        code=str(exc),
+                        message=str(exc),
+                        request_id=open_message.request_id,
+                    )
+                    continue
+
+                if not is_locked:
+                    response = KnowledgeOpenedMessage(
+                        type="KNOWLEDGE_OPENED",
+                        request_id=open_message.request_id,
+                        module=KnowledgeOpenedModule.model_validate(
+                            build_opened_knowledge_module(module)
+                        ),
+                    )
+                else:
+                    challenge = select_access_challenge(
+                        game_id=game_id,
+                        player_id=player_id,
+                        module_id=module.id,
+                    )
+                    response = KnowledgeLockedMessage(
+                        type="KNOWLEDGE_LOCKED",
+                        request_id=open_message.request_id,
+                        module=KnowledgeLockedModule.model_validate(
+                            build_locked_knowledge_module(module)
+                        ),
+                        challenge=KnowledgeChallengePrompt.model_validate(
+                            build_knowledge_challenge_prompt(challenge)
+                        ),
+                    )
+
+                await websocket.send_json(response.model_dump(mode="json"))
+                continue
+
+            # ---------------------------------------------------------
+            # ANSWER_KNOWLEDGE_CHALLENGE
+            # ---------------------------------------------------------
+            if message_type == "ANSWER_KNOWLEDGE_CHALLENGE":
+                answer_message = (
+                    AnswerKnowledgeChallengeMessage.model_validate(message)
+                )
+
+                try:
+                    module = get_knowledge_module(answer_message.module_id)
+                except ValueError as exc:
+                    await send_error(
+                        code=str(exc),
+                        message=str(exc),
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                if current_room_id is None:
+                    await send_error(
+                        code="KNOWLEDGE_CHALLENGE_NOT_ACTIVE",
+                        message="KNOWLEDGE_CHALLENGE_NOT_ACTIVE",
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                room = await websocket.app.state.room_repository.get_room(
+                    current_room_id
+                )
+                if room is None or room.game_id is None:
+                    await send_error(
+                        code="KNOWLEDGE_CHALLENGE_NOT_ACTIVE",
+                        message="KNOWLEDGE_CHALLENGE_NOT_ACTIVE",
+                        request_id=answer_message.request_id,
+                    )
+                    continue
+
+                async with game_loop_manager.lock(room.game_id):
+                    game = await game_repository.get_game(room.game_id)
+                    if game is None:
+                        await send_error(
+                            code="GAME_STATE_NOT_FOUND",
+                            message="GAME_STATE_NOT_FOUND",
+                            request_id=answer_message.request_id,
+                        )
+                        continue
+                    if game.status != GameStatus.RUNNING:
+                        await send_error(
+                            code="KNOWLEDGE_CHALLENGE_NOT_ACTIVE",
+                            message="KNOWLEDGE_CHALLENGE_NOT_ACTIVE",
+                            request_id=answer_message.request_id,
+                        )
+                        continue
+
+                    try:
+                        player = get_running_knowledge_player(
+                            game,
+                            player_id,
+                        )
+                    except ValueError as exc:
+                        await send_error(
+                            code=str(exc),
+                            message=str(exc),
+                            request_id=answer_message.request_id,
+                        )
+                        continue
+
+                    challenge = select_access_challenge(
+                        game_id=room.game_id,
+                        player_id=player_id,
+                        module_id=module.id,
+                    )
+                    if answer_message.challenge_id != challenge.id:
+                        await send_error(
+                            code="KNOWLEDGE_CHALLENGE_MISMATCH",
+                            message="KNOWLEDGE_CHALLENGE_MISMATCH",
+                            request_id=answer_message.request_id,
+                        )
+                        continue
+                    if not normalize_knowledge_answer(answer_message.answer):
+                        await send_error(
+                            code="ANSWER_EMPTY",
+                            message="ANSWER_EMPTY",
+                            request_id=answer_message.request_id,
+                        )
+                        continue
+
+                    if not is_challenge_answer_correct(
+                        challenge,
+                        answer_message.answer,
+                    ):
+                        response = KnowledgeChallengeFailedMessage(
+                            type="KNOWLEDGE_CHALLENGE_FAILED",
+                            request_id=answer_message.request_id,
+                            module_id=module.id,
+                            challenge_id=challenge.id,
+                        )
+                        await websocket.send_json(
+                            response.model_dump(mode="json")
+                        )
+                        continue
+
+                    if module.id not in player.unlocked_knowledge_ids:
+                        player.unlocked_knowledge_ids.append(module.id)
+
+                    await game_repository.save_game(room.game_id, game)
+
+                    response = KnowledgeUnlockedMessage(
+                        type="KNOWLEDGE_UNLOCKED",
+                        request_id=answer_message.request_id,
+                        module=KnowledgeOpenedModule.model_validate(
+                            build_opened_knowledge_module(module)
+                        ),
+                    )
+                    await websocket.send_json(
+                        response.model_dump(mode="json")
+                    )
 
                 continue
 
