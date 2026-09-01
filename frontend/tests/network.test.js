@@ -11,6 +11,83 @@ function createSessionStorage(initial = {}) {
     };
 }
 
+
+test('default reconnect timers preserve the browser global receiver', () => {
+    const setTimeoutHost = vi.fn(function (callback, delay) {
+        if (this !== globalThis) {
+            throw new TypeError('Illegal invocation');
+        }
+
+        expect(callback).toEqual(expect.any(Function));
+        expect(delay).toBe(500);
+        return 41;
+    });
+    const clearTimeoutHost = vi.fn(function (timerId) {
+        if (this !== globalThis) {
+            throw new TypeError('Illegal invocation');
+        }
+
+        expect(timerId).toBe(41);
+    });
+
+    vi.stubGlobal('setTimeout', setTimeoutHost);
+    vi.stubGlobal('clearTimeout', clearTimeoutHost);
+
+    try {
+        const network = new Network(
+            {},
+            'ws://localhost/ws',
+            {
+                storage: createSessionStorage({
+                    'securityhack.sessionToken': 'private-token',
+                }),
+            },
+        );
+
+        expect(() => network._scheduleReconnect()).not.toThrow();
+        expect(network.reconnectTimer).toBe(41);
+        expect(network.reconnectAttempt).toBe(1);
+
+        expect(() => network._cancelReconnect()).not.toThrow();
+        expect(network.reconnectTimer).toBeNull();
+        expect(setTimeoutHost).toHaveBeenCalledTimes(1);
+        expect(clearTimeoutHost).toHaveBeenCalledTimes(1);
+    } finally {
+        vi.unstubAllGlobals();
+    }
+});
+
+
+test('injected reconnect scheduler keeps existing delay and cancel semantics', () => {
+    const schedule = vi.fn(() => 'injected-timer');
+    const cancelSchedule = vi.fn();
+    const network = new Network(
+        {},
+        'ws://localhost/ws',
+        {
+            storage: createSessionStorage({
+                'securityhack.sessionToken': 'private-token',
+            }),
+            schedule,
+            cancelSchedule,
+        },
+    );
+
+    network._scheduleReconnect();
+
+    expect(schedule).toHaveBeenCalledWith(
+        expect.any(Function),
+        500,
+    );
+    expect(network.reconnectTimer).toBe('injected-timer');
+    expect(network.reconnectAttempt).toBe(1);
+
+    network._cancelReconnect();
+
+    expect(cancelSchedule).toHaveBeenCalledWith('injected-timer');
+    expect(network.reconnectTimer).toBeNull();
+});
+
 describe('Network', () => {
     test('forwards GAME_STATE to onGameState handler', () => {
         const onGameState = vi.fn();
@@ -186,6 +263,135 @@ test('upgradeNode sends server-authoritative UPGRADE_NODE request', () => {
     expect(sent).not.toHaveProperty('cost');
     expect(sent).not.toHaveProperty('to_level');
     expect(sent).not.toHaveProperty('resources');
+});
+
+
+test('listKnowledge sends LIST_KNOWLEDGE request', () => {
+    const network = new Network({}, 'ws://localhost/ws');
+    network.ws = {
+        readyState: WebSocket.OPEN,
+        send: vi.fn(),
+    };
+
+    network.listKnowledge();
+
+    expect(JSON.parse(network.ws.send.mock.calls[0][0])).toEqual({
+        type: 'LIST_KNOWLEDGE',
+        request_id: expect.any(String),
+    });
+});
+
+
+test('listKnowledge opens the existing transport for entry free study', async () => {
+    const sockets = [];
+    class KnowledgeWebSocket {
+        static OPEN = 1;
+
+        constructor() {
+            this.readyState = 0;
+            this.listeners = {};
+            this.send = vi.fn();
+            sockets.push(this);
+        }
+
+        addEventListener(type, listener) {
+            this.listeners[type] ??= [];
+            this.listeners[type].push(listener);
+        }
+
+        emit(type) {
+            for (const listener of this.listeners[type] ?? []) {
+                listener({});
+            }
+        }
+    }
+    vi.stubGlobal('WebSocket', KnowledgeWebSocket);
+
+    try {
+        const network = new Network({}, 'ws://localhost/ws');
+        const request = network.listKnowledge();
+
+        expect(sockets).toHaveLength(1);
+        sockets[0].readyState = KnowledgeWebSocket.OPEN;
+        sockets[0].emit('open');
+        await request;
+
+        expect(JSON.parse(sockets[0].send.mock.calls[0][0])).toEqual({
+            type: 'LIST_KNOWLEDGE',
+            request_id: expect.any(String),
+        });
+
+        await network.listKnowledge();
+        expect(sockets).toHaveLength(1);
+        expect(sockets[0].send).toHaveBeenCalledTimes(2);
+    } finally {
+        vi.unstubAllGlobals();
+    }
+});
+
+
+test('openKnowledge sends OPEN_KNOWLEDGE request', () => {
+    const network = new Network({}, 'ws://localhost/ws');
+    network.ws = {
+        readyState: WebSocket.OPEN,
+        send: vi.fn(),
+    };
+
+    network.openKnowledge('modern_encryption');
+
+    expect(JSON.parse(network.ws.send.mock.calls[0][0])).toEqual({
+        type: 'OPEN_KNOWLEDGE',
+        request_id: expect.any(String),
+        module_id: 'modern_encryption',
+    });
+});
+
+
+test('answerKnowledgeChallenge sends visible textual answer', () => {
+    const network = new Network({}, 'ws://localhost/ws');
+    network.ws = {
+        readyState: WebSocket.OPEN,
+        send: vi.fn(),
+    };
+
+    network.answerKnowledgeChallenge(
+        'modern_encryption',
+        'gate_xor_009',
+        '0010',
+    );
+
+    expect(JSON.parse(network.ws.send.mock.calls[0][0])).toEqual({
+        type: 'ANSWER_KNOWLEDGE_CHALLENGE',
+        request_id: expect.any(String),
+        module_id: 'modern_encryption',
+        challenge_id: 'gate_xor_009',
+        answer: '0010',
+    });
+});
+
+
+test.each([
+    ['KNOWLEDGE_CATALOG', 'onKnowledgeCatalog'],
+    ['KNOWLEDGE_OPENED', 'onKnowledgeOpened'],
+    ['KNOWLEDGE_LOCKED', 'onKnowledgeLocked'],
+    ['KNOWLEDGE_CHALLENGE_FAILED', 'onKnowledgeChallengeFailed'],
+    ['KNOWLEDGE_UNLOCKED', 'onKnowledgeUnlocked'],
+])('forwards %s to %s handler', (type, handlerName) => {
+    const handler = vi.fn();
+    const network = new Network(
+        { [handlerName]: handler },
+        'ws://localhost/ws',
+    );
+    const message = {
+        type,
+        request_id: 'req_knowledge',
+        marker: type,
+    };
+
+    network._handleMessage({ data: JSON.stringify(message) });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(message);
 });
 
 
@@ -648,11 +854,22 @@ test('resume timeout closes stalled socket and schedules another attempt', async
 
 test('running-game resume completes only after room and game snapshots', async () => {
     vi.useFakeTimers();
+    const eventOrder = [];
     const {
         network,
         sockets,
         WebSocketClass,
-    } = createReconnectNetwork();
+    } = createReconnectNetwork({
+        handlers: {
+            onSessionResumed: () => eventOrder.push('session-resumed'),
+            onGameState: () => eventOrder.push('game-state'),
+            onConnectionStateChange: (state) => {
+                if (state === 'connected') {
+                    eventOrder.push('connected');
+                }
+            },
+        },
+    });
 
     network.resumeStoredSession();
     const socket = sockets[0];
@@ -707,6 +924,11 @@ test('running-game resume completes only after room and game snapshots', async (
     });
 
     expect(network.connectionState).toBe('connected');
+    expect(eventOrder).toEqual([
+        'session-resumed',
+        'game-state',
+        'connected',
+    ]);
     expect(network.reconnectAttempt).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
 

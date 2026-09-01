@@ -3,11 +3,13 @@ import { View } from './View.js';
 import { Controller } from './Controller.js';
 import { LobbyView } from './LobbyView.js';
 import { Network } from './Network.js';
+import { BestiaryView } from './BestiaryView.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     const gameModel = new Model();
     const gameView = new View();
     const lobbyView = new LobbyView();
+    const bestiaryView = new BestiaryView();
 
     let controller;
 
@@ -47,6 +49,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         onSessionResumed: (message) =>
             controller.onSessionResumed(message),
+
+        onKnowledgeCatalog: (message) =>
+            controller.onKnowledgeCatalog(message),
+
+        onKnowledgeOpened: (message) =>
+            controller.onKnowledgeOpened(message),
+
+        onKnowledgeLocked: (message) =>
+            controller.onKnowledgeLocked(message),
+
+        onKnowledgeChallengeFailed: (message) =>
+            controller.onKnowledgeChallengeFailed(message),
+
+        onKnowledgeUnlocked: (message) =>
+            controller.onKnowledgeUnlocked(message),
     };
 
     const network = new Network(handlers);
@@ -56,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gameView,
         lobbyView,
         network,
+        bestiaryView,
     );
 
     network.resumeStoredSession?.();

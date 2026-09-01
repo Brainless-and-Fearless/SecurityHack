@@ -42,6 +42,7 @@ describe('Controller', () => {
         };
 
         vi.stubGlobal('document', {
+            addEventListener: vi.fn(),
             getElementById: vi.fn((id) => {
                 if (id === 'game-screen') {
                     return gameScreen;
@@ -135,6 +136,7 @@ describe('Controller', () => {
         };
 
         vi.stubGlobal('document', {
+            addEventListener: vi.fn(),
             getElementById: vi.fn(() => ({
                 addEventListener: vi.fn(),
                 textContent: '',
@@ -215,6 +217,7 @@ describe('Controller', () => {
             };
 
             vi.stubGlobal('document', {
+                addEventListener: vi.fn(),
                 getElementById: vi.fn(() => ({
                     addEventListener: vi.fn(),
                     textContent: '',
@@ -276,6 +279,7 @@ describe('Controller', () => {
             };
 
             vi.stubGlobal('document', {
+                addEventListener: vi.fn(),
                 getElementById: vi.fn(() => ({
                     addEventListener: vi.fn(),
                     textContent: '',
@@ -374,6 +378,7 @@ describe('Controller', () => {
             };
 
             vi.stubGlobal('document', {
+                addEventListener: vi.fn(),
                 getElementById: vi.fn(
                     (id) =>
                         elements[id] ?? {
@@ -454,6 +459,7 @@ describe('Controller', () => {
             };
 
             vi.stubGlobal('document', {
+                addEventListener: vi.fn(),
                 getElementById: vi.fn(() => ({
                     addEventListener: vi.fn(),
                     textContent: '',
@@ -588,6 +594,7 @@ test('handles the complete room-to-game flow', () => {
     };
 
     vi.stubGlobal('document', {
+        addEventListener: vi.fn(),
         getElementById: vi.fn(
             (id) =>
                 elements[id] ?? {
@@ -923,6 +930,7 @@ function createAttackController(elements = {}) {
     };
 
     vi.stubGlobal('document', {
+        addEventListener: vi.fn(),
         createElement: vi.fn(() => createMockChoiceButton()),
         getElementById: vi.fn(
             (id) => (
@@ -973,6 +981,10 @@ test('clicking an enemy node attacks without opening upgrade panel', () => {
         view,
         network,
     } = createAttackController(elements);
+    const playEffect = vi.spyOn(
+        controller.audio,
+        'playEffect',
+    );
 
     view.getNodeAtPoint.mockReturnValue(
         'node_2'
@@ -990,6 +1002,7 @@ test('clicking an enemy node attacks without opening upgrade panel', () => {
     expect(
         network.attackNode
     ).toHaveBeenCalledWith('node_2');
+    expect(playEffect).toHaveBeenCalledWith('click');
     expect(controller.selectedUpgradeNodeId).toBeNull();
     expect(
         elements['node-upgrade-panel'].classList.contains('hidden')
@@ -1370,6 +1383,10 @@ test.each([
         controller,
         model,
     } = createAttackController(elements);
+    const playFinishSequence = vi.spyOn(
+        controller.audio,
+        'playFinishSequence',
+    );
     model.state.players.player_2 = {
         id: 'player_2',
         nickname: 'Bob',
@@ -1400,6 +1417,9 @@ test.each([
     expect(
         elements['game-finished-details'].textContent
     ).toContain('Bob: 7');
+    expect(playFinishSequence).toHaveBeenCalledWith(
+        winnerId === 'player_1'
+    );
 });
 
 
@@ -1623,6 +1643,9 @@ test('leaving a room clears its preview and allows the next preview', () => {
         renderRoom: vi.fn(),
     };
     const context = {
+        audio: {
+            resetForNewMatch: vi.fn(),
+        },
         network: {
             leaveRoom: vi.fn(),
         },
@@ -1637,6 +1660,7 @@ test('leaving a room clears its preview and allows the next preview', () => {
     );
 
     expect(context.network.leaveRoom).toHaveBeenCalledTimes(1);
+    expect(context.audio.resetForNewMatch).toHaveBeenCalledTimes(1);
     expect(lobbyView.clearMapPreview).not.toHaveBeenCalled();
     expect(context.room).toEqual({ roomCode: 'OLD001' });
     expect(lobbyView.showEntryScreen).not.toHaveBeenCalled();
@@ -2275,6 +2299,10 @@ test('successful attack keeps explanation readable in result modal', () => {
     } = createAttackController(
         elements
     );
+    const playEffect = vi.spyOn(
+        controller.audio,
+        'playEffect',
+    );
 
     controller.activeTask = {
         id: 'task_123',
@@ -2289,6 +2317,8 @@ test('successful attack keeps explanation readable in result modal', () => {
         theory: null,
         explanation: 'AES protects data with a symmetric key.',
     });
+
+    expect(playEffect).toHaveBeenCalledWith('success');
 
     expect(controller.activeTask).toBeNull();
     expect(
@@ -2358,6 +2388,10 @@ test('failed attack displays task theory', () => {
     } = createAttackController(
         elements
     );
+    const playEffect = vi.spyOn(
+        controller.audio,
+        'playEffect',
+    );
 
     controller.activeTask = {
         id: 'task_123',
@@ -2372,6 +2406,8 @@ test('failed attack displays task theory', () => {
         theory: 'Криптографическая теория',
         explanation: null,
     });
+
+    expect(playEffect).toHaveBeenCalledWith('wrong');
 
     expect(controller.activeTask).toBeNull();
     expect(

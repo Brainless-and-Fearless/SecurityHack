@@ -137,6 +137,25 @@ class UpgradeNodeMessage(BaseModel):
     node_id: str
 
 
+class ListKnowledgeMessage(BaseModel):
+    type: Literal["LIST_KNOWLEDGE"]
+    request_id: str
+
+
+class OpenKnowledgeMessage(BaseModel):
+    type: Literal["OPEN_KNOWLEDGE"]
+    request_id: str
+    module_id: str
+
+
+class AnswerKnowledgeChallengeMessage(BaseModel):
+    type: Literal["ANSWER_KNOWLEDGE_CHALLENGE"]
+    request_id: str
+    module_id: str
+    challenge_id: str
+    answer: str
+
+
 class RoomJoinedMessage(BaseModel):
     type: Literal["ROOM_JOINED"]
     request_id: str
@@ -204,6 +223,63 @@ class NodeUpgradedMessage(BaseModel):
     from_level: DefenceLevel
     to_level: DefenceLevel
     cost: float
+
+
+class KnowledgeCatalogModule(BaseModel):
+    id: str
+    title: str
+    categories: list[str]
+    is_locked: bool
+
+
+class KnowledgeOpenedModule(BaseModel):
+    id: str
+    title: str
+    categories: list[str]
+    content: str
+
+
+class KnowledgeLockedModule(BaseModel):
+    id: str
+    title: str
+    categories: list[str]
+
+
+class KnowledgeChallengePrompt(BaseModel):
+    id: str
+    question: str
+
+
+class KnowledgeCatalogMessage(BaseModel):
+    type: Literal["KNOWLEDGE_CATALOG"]
+    request_id: str
+    modules: list[KnowledgeCatalogModule]
+
+
+class KnowledgeOpenedMessage(BaseModel):
+    type: Literal["KNOWLEDGE_OPENED"]
+    request_id: str
+    module: KnowledgeOpenedModule
+
+
+class KnowledgeLockedMessage(BaseModel):
+    type: Literal["KNOWLEDGE_LOCKED"]
+    request_id: str
+    module: KnowledgeLockedModule
+    challenge: KnowledgeChallengePrompt
+
+
+class KnowledgeChallengeFailedMessage(BaseModel):
+    type: Literal["KNOWLEDGE_CHALLENGE_FAILED"]
+    request_id: str
+    module_id: str
+    challenge_id: str
+
+
+class KnowledgeUnlockedMessage(BaseModel):
+    type: Literal["KNOWLEDGE_UNLOCKED"]
+    request_id: str
+    module: KnowledgeOpenedModule
 
 
 class GameFinishedMessage(BaseModel):

@@ -31,6 +31,21 @@ class RoomStatus(str, Enum):
     FINISHED = "finished"
 
 
+class KnowledgeModule(BaseModel):
+    id: str
+    title: str
+    categories: list[str]
+    content: str
+    gate_ids: list[str]
+
+
+class AccessChallenge(BaseModel):
+    id: str
+    question: str
+    answer: str
+    accepted_answers: list[str] = Field(default_factory=list)
+
+
 class Player(BaseModel):
 
     id: str
@@ -45,6 +60,8 @@ class Player(BaseModel):
     )
 
     owned_node_ids: list[str] = Field(default_factory=list)
+
+    unlocked_knowledge_ids: list[str] = Field(default_factory=list)
 
     spawn_node_id: Optional[str] = None
 

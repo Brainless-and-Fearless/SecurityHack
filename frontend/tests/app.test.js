@@ -17,11 +17,21 @@ const mocks = vi.hoisted(() => ({
         value: null,
     },
 
+    bestiaryView: {},
+    capturedBestiaryView: {
+        value: null,
+    },
+
     onAttackCancelled: vi.fn(),
     onNodeUpgraded: vi.fn(),
     onGameFinished: vi.fn(),
     onConnectionStateChange: vi.fn(),
     onRoomLeft: vi.fn(),
+    onKnowledgeCatalog: vi.fn(),
+    onKnowledgeOpened: vi.fn(),
+    onKnowledgeLocked: vi.fn(),
+    onKnowledgeChallengeFailed: vi.fn(),
+    onKnowledgeUnlocked: vi.fn(),
 }));
 
 vi.mock('../js/Model.js', () => ({
@@ -42,6 +52,14 @@ vi.mock('../js/LobbyView.js', () => ({
     },
 }));
 
+vi.mock('../js/BestiaryView.js', () => ({
+    BestiaryView: class {
+        constructor() {
+            return mocks.bestiaryView;
+        }
+    },
+}));
+
 vi.mock('../js/Network.js', () => ({
     Network: class {
         constructor(handlers) {
@@ -59,9 +77,11 @@ vi.mock('../js/Controller.js', () => ({
             view,
             lobbyView,
             lobbyTransport,
+            bestiaryView,
         ) {
             mocks.capturedLobbyTransport.value =
                 lobbyTransport;
+            mocks.capturedBestiaryView.value = bestiaryView;
         }
 
         onAttackCancelled(message) {
@@ -82,6 +102,26 @@ vi.mock('../js/Controller.js', () => ({
 
         onRoomLeft(message) {
             mocks.onRoomLeft(message);
+        }
+
+        onKnowledgeCatalog(message) {
+            mocks.onKnowledgeCatalog(message);
+        }
+
+        onKnowledgeOpened(message) {
+            mocks.onKnowledgeOpened(message);
+        }
+
+        onKnowledgeLocked(message) {
+            mocks.onKnowledgeLocked(message);
+        }
+
+        onKnowledgeChallengeFailed(message) {
+            mocks.onKnowledgeChallengeFailed(message);
+        }
+
+        onKnowledgeUnlocked(message) {
+            mocks.onKnowledgeUnlocked(message);
         }
     },
 }));
@@ -104,10 +144,40 @@ describe('app bootstrap', () => {
         expect(
             mocks.capturedLobbyTransport.value
         ).toBe(mocks.network);
+        expect(mocks.capturedBestiaryView.value).toBe(mocks.bestiaryView);
         expect(
             mocks.network.resumeStoredSession
         ).toHaveBeenCalledTimes(1);
 
+        vi.unstubAllGlobals();
+    });
+
+    test.each([
+        ['KNOWLEDGE_CATALOG', 'onKnowledgeCatalog', 'onKnowledgeCatalog'],
+        ['KNOWLEDGE_OPENED', 'onKnowledgeOpened', 'onKnowledgeOpened'],
+        ['KNOWLEDGE_LOCKED', 'onKnowledgeLocked', 'onKnowledgeLocked'],
+        [
+            'KNOWLEDGE_CHALLENGE_FAILED',
+            'onKnowledgeChallengeFailed',
+            'onKnowledgeChallengeFailed',
+        ],
+        ['KNOWLEDGE_UNLOCKED', 'onKnowledgeUnlocked', 'onKnowledgeUnlocked'],
+    ])('routes %s from Network to Controller', async (
+        type,
+        handlerName,
+        controllerSpyName,
+    ) => {
+        vi.stubGlobal('document', {
+            addEventListener: vi.fn((event, callback) => {
+                if (event === 'DOMContentLoaded') callback();
+            }),
+        });
+        await import('../js/app.js');
+        const message = { type, request_id: 'req_knowledge' };
+
+        mocks.capturedNetworkHandlers.value[handlerName](message);
+
+        expect(mocks[controllerSpyName]).toHaveBeenCalledWith(message);
         vi.unstubAllGlobals();
     });
 

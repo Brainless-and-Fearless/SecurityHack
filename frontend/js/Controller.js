@@ -1,9 +1,13 @@
+import { AudioManager } from './AudioManager.js';
+
 export class Controller {
-    constructor(model, view, lobbyView, network) {
+    constructor(model, view, lobbyView, network, bestiaryView = null) {
         this.model = model;
         this.view = view;
         this.lobbyView = lobbyView;
         this.network = network;
+        this.bestiaryView = bestiaryView;
+        this.audio = new AudioManager();
 
         this.gameScreen = document.getElementById('game-screen');
         this.playerName = document.getElementById('player-name');
@@ -13,6 +17,9 @@ export class Controller {
         this.hudTimerItem = document.getElementById('hud-timer-item');
         this.connectionStatus = document.getElementById(
             'connection-status'
+        );
+        this.openBestiaryBtn = document.getElementById(
+            'open-bestiary-btn'
         );
 
         this.taskModal = document.getElementById('task-modal');
@@ -59,6 +66,7 @@ export class Controller {
         this.selectedUpgradeNodeId = null;
         this.isGameFinished = false;
         this.isResumingSession = false;
+        this.knowledgeRefreshAfterResume = false;
 
         this._prevResources = null;
         this._prevScore = null;
@@ -99,6 +107,11 @@ export class Controller {
             () => this.handleStartGame()
         );
 
+        this.openBestiaryBtn?.addEventListener(
+            'click',
+            () => this.openBestiaryFromEntry()
+        );
+
         lv.setEntryMode('create');
         lv.startAmbientLoop();
 
@@ -128,6 +141,39 @@ export class Controller {
                 'click',
                 (event) => this.handleNodeClick(event)
             );
+
+        this.bestiaryView?.setHandlers({
+            onModuleSelected: (moduleId) => (
+                this.handleKnowledgeModuleSelected(moduleId)
+            ),
+            onChallengeSubmit: (moduleId, challengeId, answer) => (
+                this.handleKnowledgeChallengeSubmit(
+                    moduleId,
+                    challengeId,
+                    answer,
+                )
+            ),
+            onCloseRequested: () => this.closeBestiaryToEntry(),
+        });
+    }
+
+    openBestiaryFromEntry() {
+        if (
+            this.network.connectionState === 'reconnecting'
+            || typeof this.network.listKnowledge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.lobbyView.hideAll?.();
+        this.bestiaryView?.showForEntry?.();
+        this.network.listKnowledge();
+        return true;
+    }
+
+    closeBestiaryToEntry() {
+        this.bestiaryView?.hide?.();
+        this.lobbyView.showEntryScreen?.();
     }
 
     handleEntrySubmit() {
@@ -144,6 +190,8 @@ export class Controller {
             );
             return;
         }
+
+        this.audio.unlock();
 
         if (lv.entryMode === 'join') {
             const code = lv.roomCodeInput.value
@@ -175,6 +223,7 @@ export class Controller {
         const gameStatus = this.model?.state?.status;
 
         if (gameStatus !== 'running' && gameStatus !== 'finished') {
+            this.bestiaryView?.hide?.();
             this.lobbyView.showLobbyScreen();
         }
 
@@ -183,9 +232,12 @@ export class Controller {
 
     onSessionResumed() {
         this.isResumingSession = true;
+        this.knowledgeRefreshAfterResume = true;
     }
 
     onNetworkError(message) {
+        this.bestiaryView?.recoverChallengeSubmission?.();
+
         this.lobbyView.showToast(
             'error',
             message
@@ -196,6 +248,8 @@ export class Controller {
         if (!this.room) {
             return;
         }
+
+        this.audio.playEffect('click');
 
         navigator.clipboard
             ?.writeText(this.room.roomCode)
@@ -210,11 +264,13 @@ export class Controller {
     }
 
     handleLeaveRoom() {
+        this.audio.resetForNewMatch();
         this.network.leaveRoom();
     }
 
     onRoomLeft() {
         this.room = null;
+        this.bestiaryView?.hide?.();
         this.lobbyView.clearMapPreview();
 
         this.lobbyView.showEntryScreen();
@@ -222,6 +278,7 @@ export class Controller {
     }
 
     handleStartGame() {
+        this.audio.unlock();
         this.network.startGame();
     }
 
@@ -240,6 +297,9 @@ export class Controller {
         );
 
         this.updateHud();
+        this.audio.updateMatchTimer(
+            this.model.state.remainingTimeSeconds
+        );
 
         this.view.render(
             Object.values(this.model.state.nodes)
@@ -254,9 +314,14 @@ export class Controller {
             this.lobbyView.stopAmbientLoop?.();
             this.lobbyView.hideAll?.();
             this.gameScreen?.classList.remove('hidden');
+            this.bestiaryView?.showForGame?.();
 
             if (this.playerName && this.room?.you) {
                 this.playerName.textContent = this.room.you.name;
+            }
+
+            if (this.model.state.status === 'running') {
+                this.audio.startMusic();
             }
 
             this.isResumingSession = false;
@@ -287,21 +352,97 @@ export class Controller {
             ? this.room.you.name
             : 'Игрок';
 
+        this.audio.resetForNewMatch();
+        this.audio.startMusic();
+
         this.lobbyView.stopAmbientLoop();
         this.lobbyView.hideAll();
 
         this.gameScreen.classList.remove(
             'hidden'
         );
+        this.bestiaryView?.showForGame?.();
 
         this.playerName.textContent =
             nickname;
 
         this.updateHud();
+        this.audio.updateMatchTimer(
+            this.model.state.remainingTimeSeconds
+        );
 
         this.view.render(
             Object.values(this.model.state.nodes)
         );
+
+        this.requestKnowledgeCatalog();
+    }
+
+    isNetworkActionAvailable() {
+        return (
+            this.network.connectionState !== 'reconnecting'
+            && this.network.connectionState !== 'disconnected'
+        );
+    }
+
+    requestKnowledgeCatalog() {
+        if (
+            !this.isNetworkActionAvailable()
+            || typeof this.network.listKnowledge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.network.listKnowledge();
+        return true;
+    }
+
+    handleKnowledgeModuleSelected(moduleId) {
+        if (
+            !this.isNetworkActionAvailable()
+            || typeof this.network.openKnowledge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.network.openKnowledge(moduleId);
+        return true;
+    }
+
+    handleKnowledgeChallengeSubmit(moduleId, challengeId, answer) {
+        if (
+            !this.isNetworkActionAvailable()
+            || typeof this.network.answerKnowledgeChallenge !== 'function'
+        ) {
+            return false;
+        }
+
+        this.network.answerKnowledgeChallenge(
+            moduleId,
+            challengeId,
+            answer,
+        );
+        return true;
+    }
+
+    onKnowledgeCatalog(message) {
+        this.bestiaryView?.renderCatalog(message.modules ?? []);
+    }
+
+    onKnowledgeOpened(message) {
+        this.bestiaryView?.renderOpened(message.module);
+    }
+
+    onKnowledgeLocked(message) {
+        this.bestiaryView?.renderLocked(message);
+    }
+
+    onKnowledgeChallengeFailed(message) {
+        this.bestiaryView?.showChallengeFailure(message);
+    }
+
+    onKnowledgeUnlocked(message) {
+        this.bestiaryView?.renderUnlocked(message.module);
     }
 
     updateHud() {
@@ -430,6 +571,8 @@ export class Controller {
         if (nodeId === null) {
             return;
         }
+
+        this.audio.playEffect('click');
 
         const node = this.model.state.nodes[nodeId];
         const playerId = this.getCurrentPlayerId();
@@ -628,6 +771,8 @@ export class Controller {
         }
 
         if (message.success) {
+            this.audio.playEffect('success');
+
             this.taskTitle.textContent =
                 'Узел успешно захвачен';
 
@@ -646,6 +791,8 @@ export class Controller {
 
             return;
         }
+
+        this.audio.playEffect('wrong');
 
         this.taskTitle.textContent =
             'Попытка не удалась';
@@ -806,10 +953,13 @@ export class Controller {
         this.closeNodeUpgradePanel();
 
         const currentPlayerId = this.getCurrentPlayerId();
+        const isWinner =
+            message.winner_id !== null
+            && message.winner_id === currentPlayerId;
 
         if (message.winner_id === null) {
             this.gameFinishedTitle.textContent = 'Ничья';
-        } else if (message.winner_id === currentPlayerId) {
+        } else if (isWinner) {
             this.gameFinishedTitle.textContent = 'Победа';
         } else {
             this.gameFinishedTitle.textContent = 'Поражение';
@@ -833,9 +983,18 @@ export class Controller {
             `${winnerLine}Итоговый счёт:\n${scoreLines.join('\n')}`;
 
         this.gameFinishedPanel.classList.remove('hidden');
+
+        this.audio.playFinishSequence(isWinner);
+        this.requestKnowledgeCatalog();
     }
 
     onConnectionStateChange(state) {
+        if (state === 'connected' && this.knowledgeRefreshAfterResume) {
+            if (this.requestKnowledgeCatalog()) {
+                this.knowledgeRefreshAfterResume = false;
+            }
+        }
+
         if (!this.connectionStatus) {
             return;
         }

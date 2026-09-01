@@ -282,3 +282,34 @@ async def test_started_game_map_exactly_matches_latest_lobby_preview(
 
     assert game_nodes == preview_nodes
     assert game_edges == preview_edges
+
+
+@pytest.mark.anyio
+async def test_new_match_naturally_resets_player_knowledge_unlocks(
+    game_service,
+):
+    room_a = Room(
+        id="ROOM_MATCH_A",
+        host_id="player_1",
+        player_ids=["player_1", "player_2"],
+        player_nicknames={"player_1": "Alice", "player_2": "Bob"},
+    )
+    game_a_id, game_a = await game_service.start_game(room_a)
+    game_a.players["player_1"].unlocked_knowledge_ids.append(
+        "modern_encryption"
+    )
+    await game_service.game_repository.save_game(game_a_id, game_a)
+
+    room_b = Room(
+        id="ROOM_MATCH_B",
+        host_id="player_1",
+        player_ids=["player_1", "player_2"],
+        player_nicknames={"player_1": "Alice", "player_2": "Bob"},
+    )
+    _, game_b = await game_service.start_game(room_b)
+
+    assert game_a.players["player_1"].unlocked_knowledge_ids == [
+        "modern_encryption"
+    ]
+    assert game_b.players["player_1"].unlocked_knowledge_ids == []
+    assert game_b.players["player_2"].unlocked_knowledge_ids == []
