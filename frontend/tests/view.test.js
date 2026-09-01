@@ -1,6 +1,51 @@
 import { describe, expect, test, vi } from 'vitest';
 import { View } from '../js/View.js';
 
+
+function createRenderView(operations = []) {
+    const view = Object.create(View.prototype);
+
+    view.canvas = {
+        width: 800,
+        height: 600,
+    };
+    view.ctx = {
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(() => operations.push('edge')),
+        lineTo: vi.fn(),
+        arc: vi.fn(() => operations.push('node')),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+    };
+    view.getOwner = vi.fn(() => null);
+    view.getDefenceLevel = vi.fn(() => 1);
+    view.getOwnerColor = vi.fn(() => '#334155');
+    view.drawDefenceDots = vi.fn();
+
+    return view;
+}
+
+
+function createConnectedNodes(activeAttackPlayerId = null) {
+    return [
+        {
+            id: 'node_a',
+            x: -0.5,
+            y: 0,
+            neighbor_ids: ['node_b'],
+            active_attack_player_id: activeAttackPlayerId,
+        },
+        {
+            id: 'node_b',
+            x: 0.5,
+            y: 0,
+            neighbor_ids: ['node_a'],
+            active_attack_player_id: null,
+        },
+    ];
+}
+
 describe('View', () => {
     test('maps K1, K2 and K3 defence levels to dot counts', () => {
         const view = Object.create(View.prototype);
@@ -129,6 +174,92 @@ test('scales normalized node coordinates to screen coordinates', () => {
     expect(position.y).toBeCloseTo(
         300 - 0.5 * (600 * 0.42)
     );
+});
+
+
+test('draws graph edges on the first render', () => {
+    const view = createRenderView();
+
+    view.render(createConnectedNodes());
+
+    expect(view.ctx.moveTo).toHaveBeenCalledTimes(1);
+    expect(view.ctx.lineTo).toHaveBeenCalledTimes(1);
+});
+
+
+test('first edge render does not require cached node positions', () => {
+    const view = createRenderView();
+
+    expect(view._renderedNodePositions).toBeUndefined();
+
+    view.render(createConnectedNodes());
+
+    expect(view.ctx.moveTo).toHaveBeenCalledTimes(1);
+});
+
+
+test('draws a bidirectional adjacency edge only once', () => {
+    const view = createRenderView();
+
+    view.render(createConnectedNodes());
+
+    expect(view.ctx.lineTo).toHaveBeenCalledTimes(1);
+});
+
+
+test('draws nodes after graph edges', () => {
+    const operations = [];
+    const view = createRenderView(operations);
+
+    view.render(createConnectedNodes());
+
+    expect(operations[0]).toBe('edge');
+    expect(operations.slice(1)).toEqual(['node', 'node']);
+});
+
+
+test('draws the same edge set on consecutive renders', () => {
+    const view = createRenderView();
+    const nodes = createConnectedNodes();
+
+    view.render(nodes);
+    expect(view.ctx.lineTo).toHaveBeenCalledTimes(1);
+
+    view.render(nodes);
+    expect(view.ctx.lineTo).toHaveBeenCalledTimes(2);
+});
+
+
+test('skips an edge whose neighbor node is missing', () => {
+    const view = createRenderView();
+    const nodes = [{
+        id: 'node_a',
+        x: 0,
+        y: 0,
+        neighbor_ids: ['missing_node'],
+        active_attack_player_id: null,
+    }];
+
+    expect(() => view.render(nodes)).not.toThrow();
+    expect(view.ctx.moveTo).not.toHaveBeenCalled();
+});
+
+
+test('attack animation render keeps graph edges visible', () => {
+    const scheduledFrames = [];
+    vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn(callback => scheduledFrames.push(callback)),
+    );
+    const view = createRenderView();
+
+    view.render(createConnectedNodes('player_1'));
+    expect(view.ctx.lineTo).toHaveBeenCalledTimes(1);
+
+    scheduledFrames[0]();
+    expect(view.ctx.lineTo).toHaveBeenCalledTimes(2);
+
+    vi.unstubAllGlobals();
 });
 
 

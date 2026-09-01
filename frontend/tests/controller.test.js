@@ -783,6 +783,65 @@ function createTrackedClassList(...initialNames) {
 }
 
 
+function createMockChoiceButton() {
+    const handlers = {};
+
+    return {
+        type: '',
+        className: '',
+        textContent: '',
+        disabled: false,
+        addEventListener: vi.fn((event, handler) => {
+            handlers[event] = handler;
+        }),
+        click: vi.fn(() => handlers.click?.()),
+    };
+}
+
+
+function createTaskInteractionElements() {
+    const children = [];
+
+    return {
+        'task-modal': {
+            classList: createTrackedClassList('hidden'),
+        },
+        'task-title': {
+            textContent: '',
+        },
+        'task-desc': {
+            textContent: '',
+        },
+        'task-answer': {
+            value: '',
+            focus: vi.fn(),
+            disabled: false,
+            classList: createTrackedClassList(),
+        },
+        'task-options': {
+            children,
+            classList: createTrackedClassList('hidden'),
+            appendChild: vi.fn((child) => {
+                children.push(child);
+                return child;
+            }),
+            replaceChildren: vi.fn(() => {
+                children.length = 0;
+            }),
+        },
+        'submit-task-btn': {
+            addEventListener: vi.fn(),
+            disabled: false,
+            classList: createTrackedClassList(),
+        },
+        'cancel-task-btn': {
+            addEventListener: vi.fn(),
+            textContent: '',
+        },
+    };
+}
+
+
 function createAttackController(elements = {}) {
     const model = {
         state: {
@@ -864,6 +923,7 @@ function createAttackController(elements = {}) {
     };
 
     vi.stubGlobal('document', {
+        createElement: vi.fn(() => createMockChoiceButton()),
         getElementById: vi.fn(
             (id) => (
                 elements[id] ?? {
@@ -1722,6 +1782,299 @@ test('ATTACK_STARTED opens task modal with question', () => {
     expect(
         elements['cancel-task-btn'].textContent
     ).toBe('Прервать');
+});
+
+
+function createInteractionTask(overrides = {}) {
+    return {
+        id: 'task_interaction',
+        node_id: 'node_2',
+        player_id: 'player_1',
+        defence_level: 'K2',
+        template_id: 'synthetic_interaction',
+        question: 'Выберите защищённый протокол.',
+        ...overrides,
+    };
+}
+
+
+function startInteractionTask(controller, task) {
+    controller.onAttackStarted({
+        type: 'ATTACK_STARTED',
+        request_id: 'req_interaction',
+        node_id: task.node_id,
+        task,
+    });
+}
+
+
+test.each([
+    ['legacy', {}],
+    [
+        'explicit text_input',
+        {
+            interaction_type: 'text_input',
+            options: [],
+        },
+    ],
+])('%s task renders text controls without choices', (_, metadata) => {
+    const elements = createTaskInteractionElements();
+    elements['task-answer'].classList.add('hidden');
+    elements['submit-task-btn'].classList.add('hidden');
+    const { controller } = createAttackController(elements);
+
+    startInteractionTask(
+        controller,
+        createInteractionTask(metadata),
+    );
+
+    expect(
+        elements['task-answer'].classList.contains('hidden')
+    ).toBe(false);
+    expect(
+        elements['submit-task-btn'].classList.contains('hidden')
+    ).toBe(false);
+    expect(
+        elements['task-options'].classList.contains('hidden')
+    ).toBe(true);
+    expect(elements['task-options'].children).toEqual([]);
+    expect(elements['task-answer'].focus).toHaveBeenCalledTimes(1);
+});
+
+
+test('single_choice renders ordered visible options and hides text controls', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    const options = ['TLS', 'FTP', 'Telnet', 'HTTP'];
+
+    startInteractionTask(
+        controller,
+        createInteractionTask({
+            interaction_type: 'single_choice',
+            options,
+        }),
+    );
+
+    expect(
+        elements['task-answer'].classList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['submit-task-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['task-options'].classList.contains('hidden')
+    ).toBe(false);
+    expect(
+        elements['task-options'].children.map(
+            (button) => button.textContent
+        )
+    ).toEqual(options);
+});
+
+
+test('single_choice submits visible text once and disables every option', () => {
+    const elements = createTaskInteractionElements();
+    const { controller, network } = createAttackController(elements);
+
+    startInteractionTask(
+        controller,
+        createInteractionTask({
+            interaction_type: 'single_choice',
+            options: ['TLS', 'FTP', 'Telnet', 'HTTP'],
+        }),
+    );
+
+    const [firstButton, secondButton] =
+        elements['task-options'].children;
+    firstButton.click();
+    secondButton.click();
+
+    expect(network.answerTask).toHaveBeenCalledTimes(1);
+    expect(network.answerTask).toHaveBeenCalledWith(
+        'task_interaction',
+        'TLS',
+    );
+    expect(
+        elements['task-options'].children.every(
+            (button) => button.disabled
+        )
+    ).toBe(true);
+});
+
+
+test('attack resolution hides and clears single_choice controls', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    startInteractionTask(
+        controller,
+        createInteractionTask({
+            interaction_type: 'single_choice',
+            options: ['TLS', 'FTP'],
+        }),
+    );
+
+    controller.onAttackResolved({
+        success: true,
+        score_change: 5,
+        explanation: 'TLS protects the transport.',
+    });
+
+    expect(
+        elements['task-options'].classList.contains('hidden')
+    ).toBe(true);
+    expect(elements['task-options'].children).toEqual([]);
+    expect(controller.choiceAnswerPending).toBe(false);
+});
+
+
+test('text task after single_choice clears stale options and restores input', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    startInteractionTask(
+        controller,
+        createInteractionTask({
+            interaction_type: 'single_choice',
+            options: ['TLS', 'FTP'],
+        }),
+    );
+
+    startInteractionTask(
+        controller,
+        createInteractionTask({
+            id: 'task_text',
+            interaction_type: 'text_input',
+        }),
+    );
+
+    expect(elements['task-options'].children).toEqual([]);
+    expect(
+        elements['task-options'].classList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['task-answer'].classList.contains('hidden')
+    ).toBe(false);
+    expect(
+        elements['submit-task-btn'].classList.contains('hidden')
+    ).toBe(false);
+});
+
+
+test('single_choice after text task hides text controls', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    startInteractionTask(controller, createInteractionTask());
+
+    startInteractionTask(
+        controller,
+        createInteractionTask({
+            id: 'task_choice',
+            interaction_type: 'single_choice',
+            options: ['TLS', 'FTP'],
+        }),
+    );
+
+    expect(
+        elements['task-answer'].classList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['submit-task-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['task-options'].classList.contains('hidden')
+    ).toBe(false);
+});
+
+
+test('authoritative GAME_STATE restores a pending single_choice task', () => {
+    const elements = createTaskInteractionElements();
+    const { controller, model } = createAttackController(elements);
+    const resumedTask = createInteractionTask({
+        id: 'task_resumed_choice',
+        interaction_type: 'single_choice',
+        options: ['TLS', 'FTP'],
+    });
+    model.applyGameState.mockImplementation((gameId, game) => {
+        model.state = {
+            gameId,
+            status: game.status,
+            players: game.players,
+            nodes: game.nodes,
+            tasks: game.tasks,
+            remainingTimeSeconds: game.remaining_time_seconds,
+        };
+    });
+    controller.activeTask = resumedTask;
+    controller.choiceAnswerPending = true;
+    controller.onSessionResumed();
+
+    controller.onGameState({
+        gameId: 'game_1',
+        game: {
+            status: 'running',
+            players: model.state.players,
+            nodes: model.state.nodes,
+            tasks: {
+                [resumedTask.id]: resumedTask,
+            },
+            remaining_time_seconds: 500,
+        },
+    });
+
+    expect(controller.activeTask).toBe(resumedTask);
+    expect(controller.choiceAnswerPending).toBe(false);
+    expect(
+        elements['task-options'].children.map(
+            (button) => button.textContent
+        )
+    ).toEqual(['TLS', 'FTP']);
+});
+
+
+test.each(['reconnecting', 'disconnected'])(
+    '%s state blocks single_choice submission',
+    (connectionState) => {
+        const elements = createTaskInteractionElements();
+        const { controller, network } = createAttackController(elements);
+        startInteractionTask(
+            controller,
+            createInteractionTask({
+                interaction_type: 'single_choice',
+                options: ['TLS'],
+            }),
+        );
+        network.connectionState = connectionState;
+
+        elements['task-options'].children[0].click();
+
+        expect(network.answerTask).not.toHaveBeenCalled();
+        expect(controller.choiceAnswerPending).toBe(false);
+    },
+);
+
+
+test('empty single_choice stays in choice mode without crashing', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+
+    expect(() => startInteractionTask(
+        controller,
+        createInteractionTask({
+            interaction_type: 'single_choice',
+            options: [],
+        }),
+    )).not.toThrow();
+
+    expect(elements['task-options'].children).toEqual([]);
+    expect(
+        elements['task-options'].classList.contains('hidden')
+    ).toBe(false);
+    expect(
+        elements['task-answer'].classList.contains('hidden')
+    ).toBe(true);
+    expect(
+        elements['submit-task-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(elements['cancel-task-btn'].textContent).toBe('Прервать');
 });
 
 

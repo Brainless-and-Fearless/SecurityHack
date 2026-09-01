@@ -1,9 +1,45 @@
+from collections import Counter
 import re
 
 import pytest
-from models import DefenceLevel, TaskTemplate
+from models import (
+    DefenceLevel,
+    GameState,
+    TaskInteractionType,
+    TaskTemplate,
+)
 from task_manager import TaskManager
 from task_pool import TASK_POOL
+
+
+EXPECTED_INTERACTION_DISTRIBUTION = {
+    DefenceLevel.K1: {
+        TaskInteractionType.SINGLE_CHOICE: 18,
+        TaskInteractionType.TEXT_INPUT: 7,
+    },
+    DefenceLevel.K2: {
+        TaskInteractionType.SINGLE_CHOICE: 13,
+        TaskInteractionType.TEXT_INPUT: 12,
+    },
+    DefenceLevel.K3: {
+        TaskInteractionType.SINGLE_CHOICE: 6,
+        TaskInteractionType.TEXT_INPUT: 19,
+    },
+}
+
+EXPECTED_MODULE_COUNTS = {
+    "data_encoding": 11,
+    "classical_ciphers": 7,
+    "crypto_fundamentals": 5,
+    "password_security": 7,
+    "identity_access": 6,
+    "secure_practice": 7,
+    "tls_pki": 8,
+    "integrity_authenticity": 7,
+    "modern_encryption": 7,
+    "protocol_security": 7,
+    "session_key_management": 3,
+}
 
 def test_task_template_contains_required_content_fields():
     template = TaskTemplate(
@@ -23,6 +59,9 @@ def test_task_template_contains_required_content_fields():
     assert template.answer
     assert template.explanation
     assert template.theory
+    assert template.interaction_type == TaskInteractionType.TEXT_INPUT
+    assert template.options == []
+    assert template.knowledge_module_id is None
 
 
 
@@ -213,6 +252,60 @@ def test_task_pool_contains_valid_templates_for_all_defence_levels():
         ) == 25
 
 
+def test_task_pool_matches_m6_2_structural_contract():
+    assert len(TASK_POOL) == 75
+
+    difficulty_counts = Counter(
+        template.difficulty
+        for template in TASK_POOL
+    )
+    assert difficulty_counts == {
+        DefenceLevel.K1: 25,
+        DefenceLevel.K2: 25,
+        DefenceLevel.K3: 25,
+    }
+
+    interaction_distribution = {
+        difficulty: Counter(
+            template.interaction_type
+            for template in TASK_POOL
+            if template.difficulty == difficulty
+        )
+        for difficulty in DefenceLevel
+    }
+    assert interaction_distribution == EXPECTED_INTERACTION_DISTRIBUTION
+
+    module_counts = Counter(
+        template.knowledge_module_id
+        for template in TASK_POOL
+    )
+    assert module_counts == EXPECTED_MODULE_COUNTS
+
+    for template in TASK_POOL:
+        if template.interaction_type == TaskInteractionType.SINGLE_CHOICE:
+            assert len(template.options) == 4
+
+            normalized_options = [
+                TaskManager.normalize_answer(option)
+                for option in template.options
+            ]
+            assert len(set(normalized_options)) == 4
+
+            normalized_answers = {
+                TaskManager.normalize_answer(answer)
+                for answer in [
+                    template.answer,
+                    *template.accepted_answers,
+                ]
+            }
+            assert sum(
+                option in normalized_answers
+                for option in normalized_options
+            ) == 1
+        elif template.interaction_type == TaskInteractionType.TEXT_INPUT:
+            assert template.options == []
+
+
 def test_task_manager_creates_active_task_from_template():
     manager = TaskManager(
         [
@@ -247,7 +340,111 @@ def test_task_manager_creates_active_task_from_template():
     assert task.template_id == "encryption_k2_001"
     assert task.question == (
         "Какой класс шифрования использует общий секрет?"
-    )    
+    )
+    assert task.interaction_type == TaskInteractionType.TEXT_INPUT
+    assert task.options == []
+
+
+def create_single_choice_test_manager():
+    template = TaskTemplate(
+        id="protocol_k2_choice",
+        difficulty=DefenceLevel.K2,
+        category="NETWORK_SECURITY",
+        question="Какой протокол защищает HTTPS?",
+        answer="TLS",
+        accepted_answers=["Transport Layer Security"],
+        interaction_type=TaskInteractionType.SINGLE_CHOICE,
+        options=["FTP", "HTTP", "SSH", "TLS"],
+        explanation="HTTPS использует TLS.",
+        theory="TLS защищает транспортное соединение.",
+    )
+
+    return TaskManager([template]), template
+
+
+def test_single_choice_task_copies_interaction_metadata():
+    manager, template = create_single_choice_test_manager()
+
+    task = manager.create_task(
+        node_id="node_1",
+        player_id="player_1",
+        defence_level=DefenceLevel.K2,
+    )
+
+    assert task.interaction_type == TaskInteractionType.SINGLE_CHOICE
+    assert task.options == template.options
+
+
+def test_create_task_copies_knowledge_module_id():
+    manager, template = create_single_choice_test_manager()
+    template.knowledge_module_id = "tls_pki"
+
+    task = manager.create_task(
+        node_id="node_1",
+        player_id="player_1",
+        defence_level=DefenceLevel.K2,
+    )
+
+    assert task.knowledge_module_id == "tls_pki"
+
+
+def test_runtime_task_options_are_independent_from_template_options():
+    manager, template = create_single_choice_test_manager()
+    source_options = template.options.copy()
+
+    task = manager.create_task(
+        node_id="node_1",
+        player_id="player_1",
+        defence_level=DefenceLevel.K2,
+    )
+    task.options.append("SMTP")
+
+    assert template.options == source_options
+    assert task.options is not template.options
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected_success"),
+    [
+        ("TLS", True),
+        ("SMTP", False),
+    ],
+)
+def test_single_choice_uses_existing_text_answer_validation(
+    answer,
+    expected_success,
+):
+    manager, _ = create_single_choice_test_manager()
+    task = manager.create_task(
+        node_id="node_1",
+        player_id="player_1",
+        defence_level=DefenceLevel.K2,
+    )
+
+    resolution = manager.check_answer(
+        task.id,
+        "player_1",
+        answer,
+    )
+
+    assert resolution.success is expected_success
+
+
+def test_game_state_serialization_preserves_task_interaction_metadata():
+    manager, template = create_single_choice_test_manager()
+    template.knowledge_module_id = "tls_pki"
+    task = manager.create_task(
+        node_id="node_1",
+        player_id="player_1",
+        defence_level=DefenceLevel.K2,
+    )
+    game = GameState(tasks={task.id: task})
+
+    serialized_task = game.model_dump(mode="json")["tasks"][task.id]
+
+    assert serialized_task["interaction_type"] == "single_choice"
+    assert serialized_task["options"] == ["FTP", "HTTP", "SSH", "TLS"]
+    assert serialized_task["knowledge_module_id"] == "tls_pki"
 
 
 def test_task_manager_creates_unique_task_ids():

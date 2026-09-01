@@ -573,3 +573,24 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
 #game-finished-details {
     white-space: pre-line;
 }
+
+.task-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+.task-option-btn {
+    width: 100%;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
+}
+
+.task-option-btn:hover:not(:disabled),
+.task-option-btn:focus-visible:not(:disabled) {
+    border-color: var(--primary-color);
+    filter: brightness(1.15);
+}

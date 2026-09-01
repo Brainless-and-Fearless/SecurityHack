@@ -1,6 +1,574 @@
 from models import DefenceLevel, TaskTemplate
 
 
+_M6_2_TASK_MAPPING = {
+    # K1
+    "encryption_k1_001": {
+        "knowledge_module_id": "crypto_fundamentals",
+        "interaction_type": "single_choice",
+        "question": "Нужно передать сообщение, используя заранее согласованный секретный ключ. Как называется такой класс шифрования?",
+        "options": [
+            "асимметричный",
+            "гибридный",
+            "симметричный",
+            "безключевой",
+        ],
+    },
+    "caesar_k1_001": {
+        "knowledge_module_id": "classical_ciphers",
+        "interaction_type": "text_input",
+    },
+    "rot13_k1_001": {
+        "knowledge_module_id": "classical_ciphers",
+        "interaction_type": "text_input",
+    },
+    "base64_k1_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+    "binary_k1_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+    "hex_k1_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "single_choice",
+        "question": "Какой ASCII-символ имеет шестнадцатеричный код 43?",
+        "options": [
+            "C",
+            "A",
+            "B",
+            "D",
+        ],
+    },
+    "ascii_k1_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "single_choice",
+        "question": "Какой символ имеет десятичный код ASCII 68?",
+        "options": [
+            "A",
+            "B",
+            "C",
+            "D",
+        ],
+    },
+    "hashing_k1_001": {
+        "knowledge_module_id": "integrity_authenticity",
+        "interaction_type": "single_choice",
+        "question": "Как называется одностороннее получение фиксированного отпечатка данных?",
+        "options": [
+            "шифрование",
+            "хеширование",
+            "кодирование",
+            "сжатие",
+        ],
+    },
+    "phishing_k1_001": {
+        "knowledge_module_id": "secure_practice",
+        "interaction_type": "single_choice",
+        "question": "Письмо срочно просит пароль, а домен отправителя отличается от официального одной буквой. Как называется такая угроза?",
+        "options": [
+            "брутфорс",
+            "вымогательство",
+            "фишинг",
+            "перехват трафика",
+        ],
+    },
+    "passwords_k1_001": {
+        "knowledge_module_id": "password_security",
+        "interaction_type": "single_choice",
+        "question": "Какой из вариантов пароля безопаснее?",
+        "options": [
+            "маяк лес орбита 47",
+            "qwerty",
+            "12345678",
+            "password",
+        ],
+    },
+    "mfa_k1_001": {
+        "knowledge_module_id": "identity_access",
+        "interaction_type": "single_choice",
+        "question": "Как сокращённо называется вход с паролем и дополнительным независимым фактором?",
+        "options": [
+            "SSO",
+            "VPN",
+            "ACL",
+            "MFA",
+        ],
+    },
+    "tls_k1_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "single_choice",
+        "question": "Какой протокол защищает передачу данных в современном HTTPS?",
+        "options": [
+            "HTTP",
+            "TLS",
+            "DNS",
+            "FTP",
+        ],
+    },
+    "public_key_k1_001": {
+        "knowledge_module_id": "crypto_fundamentals",
+        "interaction_type": "single_choice",
+        "question": "Какой ключ асимметричной пары можно безопасно публиковать?",
+        "options": [
+            "закрытый",
+            "сессионный",
+            "открытый",
+            "мастер-ключ",
+        ],
+    },
+    "integrity_k1_001": {
+        "knowledge_module_id": "integrity_authenticity",
+        "interaction_type": "single_choice",
+        "question": "Как называется свойство, позволяющее обнаружить незаметное изменение данных?",
+        "options": [
+            "целостность",
+            "конфиденциальность",
+            "доступность",
+            "подлинность",
+        ],
+    },
+    "firewall_k1_001": {
+        "knowledge_module_id": "secure_practice",
+        "interaction_type": "single_choice",
+        "question": "Как называется средство, которое фильтрует сетевой трафик по заданным правилам?",
+        "options": [
+            "VPN",
+            "DNS-сервер",
+            "менеджер паролей",
+            "межсетевой экран",
+        ],
+    },
+    "backup_k1_001": {
+        "knowledge_module_id": "secure_practice",
+        "interaction_type": "single_choice",
+        "question": "Что позволяет восстановить файлы после их уничтожения программой-вымогателем?",
+        "options": [
+            "журнал аудита",
+            "резервная копия",
+            "кэш",
+            "временный файл",
+        ],
+    },
+    "hex_k1_002": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+    "xor_k1_001": {
+        "knowledge_module_id": "classical_ciphers",
+        "interaction_type": "text_input",
+    },
+    "caesar_k1_002": {
+        "knowledge_module_id": "classical_ciphers",
+        "interaction_type": "text_input",
+    },
+    "salt_k1_001": {
+        "knowledge_module_id": "password_security",
+        "interaction_type": "single_choice",
+        "question": "Как называется случайное значение, добавляемое к паролю перед хешированием?",
+        "options": [
+            "перец",
+            "nonce",
+            "соль",
+            "IV",
+        ],
+    },
+    "authentication_k1_001": {
+        "knowledge_module_id": "identity_access",
+        "interaction_type": "single_choice",
+        "question": "Как называется проверка того, кем является пользователь?",
+        "options": [
+            "аутентификация",
+            "авторизация",
+            "шифрование",
+            "хеширование",
+        ],
+    },
+    "authorization_k1_001": {
+        "knowledge_module_id": "identity_access",
+        "interaction_type": "single_choice",
+        "question": "Как называется проверка разрешений уже вошедшего пользователя?",
+        "options": [
+            "аутентификация",
+            "идентификация",
+            "шифрование",
+            "авторизация",
+        ],
+    },
+    "malware_k1_001": {
+        "knowledge_module_id": "secure_practice",
+        "interaction_type": "single_choice",
+        "question": "Неожиданное письмо содержит исполняемый файл от неизвестного отправителя. Какое действие безопаснее?",
+        "options": [
+            "открыть",
+            "не открывать",
+            "переименовать",
+            "переслать",
+        ],
+    },
+    "ciphertext_k1_001": {
+        "knowledge_module_id": "crypto_fundamentals",
+        "interaction_type": "single_choice",
+        "question": "Как называется результат преобразования открытого текста шифром?",
+        "options": [
+            "открытый текст",
+            "хеш",
+            "шифротекст",
+            "ключ",
+        ],
+    },
+    "confidentiality_k1_001": {
+        "knowledge_module_id": "crypto_fundamentals",
+        "interaction_type": "single_choice",
+        "question": "Как называется свойство, при котором данные доступны только разрешённым лицам?",
+        "options": [
+            "конфиденциальность",
+            "целостность",
+            "доступность",
+            "подлинность",
+        ],
+    },
+
+    # K2
+    "encoding_k2_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "single_choice",
+        "question": "Разработчик утверждает, что секрет надёжно защищён, потому что его закодировали в Base64. Верно ли это?",
+        "options": [
+            "да",
+            "только если строка длинная",
+            "только если скрыть символы =",
+            "нет",
+        ],
+    },
+    "layered_k2_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+    "caesar_k2_001": {
+        "knowledge_module_id": "classical_ciphers",
+        "interaction_type": "text_input",
+    },
+    "xor_k2_001": {
+        "knowledge_module_id": "classical_ciphers",
+        "interaction_type": "text_input",
+    },
+    "hex_ascii_k2_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+    "binary_ascii_k2_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+    "salt_k2_001": {
+        "knowledge_module_id": "password_security",
+        "interaction_type": "single_choice",
+        "question": "Два пользователя выбрали одинаковый пароль. Что должно сделать их корректно сохранённые хеши разными?",
+        "options": [
+            "перец",
+            "соль",
+            "IV",
+            "nonce",
+        ],
+    },
+    "authorization_k2_001": {
+        "knowledge_module_id": "identity_access",
+        "interaction_type": "single_choice",
+        "question": "Пользователь успешно вошёл, но ему запрещено читать чужой отчёт. Какой механизм принял решение об отказе?",
+        "options": [
+            "аутентификация",
+            "шифрование",
+            "авторизация",
+            "хеширование",
+        ],
+    },
+    "signature_k2_001": {
+        "knowledge_module_id": "integrity_authenticity",
+        "interaction_type": "single_choice",
+        "question": "Открытый ключ достоверно связан с Alice. Какие два свойства сообщения проверяет корректная цифровая подпись?",
+        "options": [
+            "целостность и подлинность",
+            "конфиденциальность и подлинность",
+            "целостность и доступность",
+            "анонимность и конфиденциальность",
+        ],
+    },
+    "certificate_k2_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "single_choice",
+        "question": "Что TLS-сертификат связывает с именем домена?",
+        "options": [
+            "закрытый ключ",
+            "пароль сервера",
+            "сессионный ключ",
+            "открытый ключ",
+        ],
+    },
+    "password_hash_k2_001": {
+        "knowledge_module_id": "password_security",
+        "interaction_type": "single_choice",
+        "question": "Что безопаснее использовать для хранения паролей?",
+        "options": [
+            "SHA-256 без соли",
+            "Argon2 с солью",
+            "MD5 с солью",
+            "Base64",
+        ],
+    },
+    "nonce_k2_001": {
+        "knowledge_module_id": "modern_encryption",
+        "interaction_type": "single_choice",
+        "question": "Какое главное требование к nonce при повторном шифровании одним ключом?",
+        "options": [
+            "секретность",
+            "неизменность",
+            "уникальность",
+            "сжатие",
+        ],
+    },
+    "iv_k2_001": {
+        "knowledge_module_id": "modern_encryption",
+        "interaction_type": "single_choice",
+        "question": "Должен ли корректный IV обычно храниться в секрете вместе с ключом?",
+        "options": [
+            "нет",
+            "да",
+            "только если IV случайный",
+            "только если IV уникальный",
+        ],
+    },
+    "frequency_k2_001": {
+        "knowledge_module_id": "classical_ciphers",
+        "interaction_type": "text_input",
+    },
+    "hmac_k2_001": {
+        "knowledge_module_id": "integrity_authenticity",
+        "interaction_type": "text_input",
+    },
+    "replay_k2_001": {
+        "knowledge_module_id": "protocol_security",
+        "interaction_type": "text_input",
+    },
+    "least_privilege_k2_001": {
+        "knowledge_module_id": "identity_access",
+        "interaction_type": "text_input",
+    },
+    "sql_k2_001": {
+        "knowledge_module_id": "secure_practice",
+        "interaction_type": "text_input",
+    },
+    "xss_k2_001": {
+        "knowledge_module_id": "secure_practice",
+        "interaction_type": "single_choice",
+        "question": "Какова основная защита при выводе недоверенного текста в HTML-контекст?",
+        "options": [
+            "Base64",
+            "параметризованный запрос",
+            "HMAC",
+            "контекстное экранирование",
+        ],
+    },
+    "https_k2_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "single_choice",
+        "question": "Гарантирует ли значок HTTPS, что содержимое сайта не является мошенническим?",
+        "options": [
+            "да",
+            "нет",
+            "только при EV-сертификате",
+            "только если домен выглядит официально",
+        ],
+    },
+    "hybrid_crypto_k2_001": {
+        "knowledge_module_id": "crypto_fundamentals",
+        "interaction_type": "text_input",
+    },
+    "rainbow_tables_k2_001": {
+        "knowledge_module_id": "password_security",
+        "interaction_type": "single_choice",
+        "question": "Что мешает применить одну заранее вычисленную таблицу хешей ко всем пользователям?",
+        "options": [
+            "общий логин",
+            "случайный IV",
+            "уникальная соль",
+            "длинное имя пользователя",
+        ],
+    },
+    "factors_k2_001": {
+        "knowledge_module_id": "identity_access",
+        "interaction_type": "single_choice",
+        "question": "Пароль и PIN относятся к скольким типам факторов аутентификации?",
+        "options": [
+            "один",
+            "два",
+            "три",
+            "зависит от длины PIN",
+        ],
+    },
+    "certificate_expiry_k2_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "single_choice",
+        "question": "Срок действия TLS-сертификата истёк. Должен ли клиент считать его обычно действительным?",
+        "options": [
+            "да",
+            "только если цепочка доверена",
+            "только если hostname совпадает",
+            "нет",
+        ],
+    },
+    "layered_k2_002": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+
+    # K3
+    "hashing_k3_001": {
+        "knowledge_module_id": "integrity_authenticity",
+        "interaction_type": "text_input",
+    },
+    "gcm_nonce_k3_001": {
+        "knowledge_module_id": "modern_encryption",
+        "interaction_type": "single_choice",
+        "question": "Обнаружены два разных сообщения AES-GCM с одинаковыми ключом и nonce. Можно ли по-прежнему считать гарантии конфиденциальности и аутентичности этих сообщений надёжными?",
+        "options": [
+            "да",
+            "нет",
+            "надёжна только конфиденциальность",
+            "надёжна только аутентичность",
+        ],
+    },
+    "aead_k3_001": {
+        "knowledge_module_id": "modern_encryption",
+        "interaction_type": "text_input",
+    },
+    "signature_keys_k3_001": {
+        "knowledge_module_id": "integrity_authenticity",
+        "interaction_type": "single_choice",
+        "question": "Подпись математически верна, но закрытый ключ был скомпрометирован до её создания. Доказывает ли такая подпись легитимного автора?",
+        "options": [
+            "да",
+            "только если подпись имеет корректный формат",
+            "нет",
+            "только если открытому ключу доверяют",
+        ],
+    },
+    "certificate_chain_k3_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "single_choice",
+        "question": "Сертификат сервера подписан промежуточным сертификатом, ведущим к доверенному корню; сроки и hostname корректны. У промежуточного сертификата basicConstraints содержит CA=false. Валидна ли цепочка?",
+        "options": [
+            "нет",
+            "да",
+            "только если серверный сертификат не просрочен",
+            "только если корневой сертификат доверен",
+        ],
+    },
+    "forward_secrecy_k3_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "text_input",
+    },
+    "hkdf_k3_001": {
+        "knowledge_module_id": "protocol_security",
+        "interaction_type": "text_input",
+    },
+    "replay_k3_001": {
+        "knowledge_module_id": "protocol_security",
+        "interaction_type": "text_input",
+    },
+    "argon2_k3_001": {
+        "knowledge_module_id": "password_security",
+        "interaction_type": "text_input",
+    },
+    "ctr_nonce_k3_001": {
+        "knowledge_module_id": "modern_encryption",
+        "interaction_type": "text_input",
+    },
+    "associated_data_k3_001": {
+        "knowledge_module_id": "modern_encryption",
+        "interaction_type": "text_input",
+    },
+    "threat_model_k3_001": {
+        "knowledge_module_id": "password_security",
+        "interaction_type": "single_choice",
+        "question": "База с солёными хешами утекла, но отдельное хранилище секрета осталось защищено. Какой дополнительный секрет усложняет офлайн-перебор?",
+        "options": [
+            "соль",
+            "IV",
+            "nonce",
+            "перец",
+        ],
+    },
+    "hostname_k3_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "single_choice",
+        "question": "Клиент подключается к api.example.net. Цепочка доверена и срок не истёк; CN равен api.example.net, но присутствующий SAN содержит только api.example.com. Должен ли современный TLS-клиент принять сертификат?",
+        "options": [
+            "да",
+            "нет",
+            "только если CN совпадает",
+            "только если цепочка ведёт к доверенному корню",
+        ],
+    },
+    "recipient_binding_k3_001": {
+        "knowledge_module_id": "protocol_security",
+        "interaction_type": "text_input",
+    },
+    "sign_encrypt_k3_001": {
+        "knowledge_module_id": "integrity_authenticity",
+        "interaction_type": "text_input",
+    },
+    "key_version_k3_001": {
+        "knowledge_module_id": "session_key_management",
+        "interaction_type": "text_input",
+    },
+    "random_tokens_k3_001": {
+        "knowledge_module_id": "session_key_management",
+        "interaction_type": "text_input",
+    },
+    "constant_time_k3_001": {
+        "knowledge_module_id": "secure_practice",
+        "interaction_type": "text_input",
+    },
+    "domain_separation_k3_001": {
+        "knowledge_module_id": "protocol_security",
+        "interaction_type": "text_input",
+    },
+    "salt_iv_k3_001": {
+        "knowledge_module_id": "modern_encryption",
+        "interaction_type": "single_choice",
+        "question": "Парольное шифрование использует одну фиксированную соль для всех пользователей, но случайный IV для каждого файла. Защищает ли случайный IV от общей заранее вычисленной атаки на пароли?",
+        "options": [
+            "да",
+            "только если IV криптографически случайный",
+            "нет",
+            "только если IV не повторяется",
+        ],
+    },
+    "ecdhe_k3_001": {
+        "knowledge_module_id": "tls_pki",
+        "interaction_type": "text_input",
+    },
+    "key_confirmation_k3_001": {
+        "knowledge_module_id": "protocol_security",
+        "interaction_type": "text_input",
+    },
+    "reset_token_k3_001": {
+        "knowledge_module_id": "session_key_management",
+        "interaction_type": "text_input",
+    },
+    "layered_xor_k3_001": {
+        "knowledge_module_id": "data_encoding",
+        "interaction_type": "text_input",
+    },
+    "downgrade_k3_001": {
+        "knowledge_module_id": "protocol_security",
+        "interaction_type": "text_input",
+    },
+}
+
+
 _TASK_DATA = [
     # K1: basic concepts and single-step transformations.
     (
@@ -669,9 +1237,19 @@ TASK_POOL = [
         id=template_id,
         difficulty=difficulty,
         category=category,
-        question=question,
+        question=_M6_2_TASK_MAPPING[template_id].get(
+            "question",
+            question,
+        ),
         answer=answer,
         accepted_answers=_ACCEPTED_ANSWERS.get(template_id, []),
+        interaction_type=(
+            _M6_2_TASK_MAPPING[template_id]["interaction_type"]
+        ),
+        options=_M6_2_TASK_MAPPING[template_id].get("options", []).copy(),
+        knowledge_module_id=(
+            _M6_2_TASK_MAPPING[template_id]["knowledge_module_id"]
+        ),
         explanation=explanation,
         theory=theory,
     )

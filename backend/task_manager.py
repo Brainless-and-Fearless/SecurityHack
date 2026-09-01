@@ -62,6 +62,9 @@ class TaskManager:
             defence_level=defence_level,
             template_id=template.id,
             question=template.question,
+            interaction_type=template.interaction_type,
+            options=template.options.copy(),
+            knowledge_module_id=template.knowledge_module_id,
         )
 
         self.tasks[task.id] = task

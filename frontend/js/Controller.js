@@ -19,6 +19,7 @@ export class Controller {
         this.taskTitle = document.getElementById('task-title');
         this.taskDesc = document.getElementById('task-desc');
         this.taskAnswer = document.getElementById('task-answer');
+        this.taskOptions = document.getElementById('task-options');
         this.submitTaskBtn = document.getElementById(
             'submit-task-btn'
         );
@@ -53,6 +54,8 @@ export class Controller {
         );
 
         this.activeTask = null;
+        this.choiceAnswerPending = false;
+        this.taskOptionButtons = [];
         this.selectedUpgradeNodeId = null;
         this.isGameFinished = false;
         this.isResumingSession = false;
@@ -229,6 +232,8 @@ export class Controller {
     }
 
     onGameState(gameState) {
+        const wasResumingSession = this.isResumingSession;
+
         this.model.applyGameState(
             gameState.gameId,
             gameState.game
@@ -243,7 +248,7 @@ export class Controller {
         this.refreshSelectedNodeUpgrade();
 
         if (
-            this.isResumingSession
+            wasResumingSession
             && this.model.state.status !== 'waiting'
         ) {
             this.lobbyView.stopAmbientLoop?.();
@@ -268,7 +273,10 @@ export class Controller {
 
         if (
             resumedTask
-            && this.activeTask?.id !== resumedTask.id
+            && (
+                this.activeTask?.id !== resumedTask.id
+                || wasResumingSession
+            )
         ) {
             this.onAttackStarted({ task: resumedTask });
         }
@@ -536,8 +544,21 @@ export class Controller {
         const task = message.task;
 
         this.activeTask = task;
+        this.choiceAnswerPending = false;
 
-        this.showTaskInputState();
+        const interactionType = (
+            task.interaction_type ?? 'text_input'
+        );
+
+        if (interactionType === 'single_choice') {
+            const options = Array.isArray(task.options)
+                ? task.options
+                : [];
+
+            this.showTaskChoiceState(options);
+        } else {
+            this.showTaskInputState();
+        }
 
         this.taskTitle.textContent =
             'Взлом узла';
@@ -556,7 +577,9 @@ export class Controller {
             'hidden'
         );
 
-        this.taskAnswer.focus();
+        if (interactionType === 'text_input') {
+            this.taskAnswer.focus();
+        }
     }
 
     submitTaskAnswer() {
@@ -638,7 +661,33 @@ export class Controller {
         );
     }
 
+    submitChoiceAnswer(optionText) {
+        if (
+            !this.activeTask
+            || this.activeTask.interaction_type !== 'single_choice'
+            || this.choiceAnswerPending
+            || this.network.connectionState === 'reconnecting'
+            || this.network.connectionState === 'disconnected'
+        ) {
+            return;
+        }
+
+        this.choiceAnswerPending = true;
+
+        for (const button of this.taskOptionButtons) {
+            button.disabled = true;
+        }
+
+        this.network.answerTask(
+            this.activeTask.id,
+            optionText
+        );
+    }
+
     showTaskInputState() {
+        this.choiceAnswerPending = false;
+        this.clearTaskOptions();
+
         this.taskAnswer.classList.remove(
             'hidden'
         );
@@ -653,7 +702,46 @@ export class Controller {
         }
     }
 
+    showTaskChoiceState(options) {
+        this.choiceAnswerPending = false;
+
+        this.taskAnswer.classList.add('hidden');
+        this.taskAnswer.disabled = true;
+
+        this.submitTaskBtn?.classList.add('hidden');
+
+        if (this.submitTaskBtn) {
+            this.submitTaskBtn.disabled = true;
+        }
+
+        this.clearTaskOptions();
+        this.taskOptions?.classList.remove('hidden');
+
+        for (const optionText of options) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'task-option-btn';
+            button.textContent = optionText;
+            button.addEventListener(
+                'click',
+                () => this.submitChoiceAnswer(optionText)
+            );
+
+            this.taskOptionButtons.push(button);
+            this.taskOptions?.appendChild(button);
+        }
+    }
+
+    clearTaskOptions() {
+        this.taskOptions?.replaceChildren?.();
+        this.taskOptions?.classList.add('hidden');
+        this.taskOptionButtons = [];
+    }
+
     showTaskResultState() {
+        this.choiceAnswerPending = false;
+        this.clearTaskOptions();
+
         this.taskAnswer.classList.add(
             'hidden'
         );
@@ -706,6 +794,8 @@ export class Controller {
             'input-error'
         );
 
+        this.choiceAnswerPending = false;
+        this.clearTaskOptions();
         this.activeTask = null;
     }
 

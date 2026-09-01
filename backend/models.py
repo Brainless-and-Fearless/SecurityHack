@@ -14,6 +14,11 @@ class DefenceLevel(str, Enum):
     K3 = "K3"
 
 
+class TaskInteractionType(str, Enum):
+    TEXT_INPUT = "text_input"
+    SINGLE_CHOICE = "single_choice"
+
+
 class GameStatus(str, Enum):
     WAITING = "waiting"
     RUNNING = "running"
@@ -98,6 +103,11 @@ class Task(BaseModel):
     defence_level: DefenceLevel
     template_id: str | None = None
     question: str
+    interaction_type: TaskInteractionType = (
+        TaskInteractionType.TEXT_INPUT
+    )
+    options: list[str] = Field(default_factory=list)
+    knowledge_module_id: str | None = None
 
 
 class TaskTemplate(BaseModel):
@@ -107,6 +117,11 @@ class TaskTemplate(BaseModel):
     question: str
     answer: str
     accepted_answers: list[str] = Field(default_factory=list)
+    interaction_type: TaskInteractionType = (
+        TaskInteractionType.TEXT_INPUT
+    )
+    options: list[str] = Field(default_factory=list)
+    knowledge_module_id: str | None = None
     explanation: str
     theory: str
 

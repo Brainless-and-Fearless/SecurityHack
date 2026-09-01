@@ -85,12 +85,71 @@ export class View {
         ) * 0.42;
 
         nodes.forEach(node => {
+            if (
+                node?.id == null ||
+                !Number.isFinite(node.x) ||
+                !Number.isFinite(node.y)
+            ) {
+                return;
+            }
+
             const x =
                 centerX + node.x * scale;
 
             const y =
                 centerY + node.y * scale;
-            this._renderedNodePositions.set(node.id, { x, y } );
+            this._renderedNodePositions.set(node.id, { x, y });
+        });
+
+        const renderedEdges = new Set();
+
+        nodes.forEach(node => {
+            const sourcePosition =
+                this._renderedNodePositions.get(node?.id);
+            const neighborIds = Array.isArray(node?.neighbor_ids)
+                ? node.neighbor_ids
+                : [];
+
+            if (!sourcePosition) {
+                return;
+            }
+
+            neighborIds.forEach(neighborId => {
+                const targetPosition =
+                    this._renderedNodePositions.get(neighborId);
+
+                if (!targetPosition) {
+                    return;
+                }
+
+                const edgeKey = [
+                    String(node.id),
+                    String(neighborId),
+                ].sort().join('\u0000');
+
+                if (renderedEdges.has(edgeKey)) {
+                    return;
+                }
+
+                renderedEdges.add(edgeKey);
+                this.ctx.beginPath();
+                this.ctx.moveTo(sourcePosition.x, sourcePosition.y);
+                this.ctx.lineTo(targetPosition.x, targetPosition.y);
+                this.ctx.strokeStyle = '#475569';
+                this.ctx.lineWidth = 1.5;
+                this.ctx.stroke();
+            });
+        });
+
+        nodes.forEach(node => {
+            const position =
+                this._renderedNodePositions.get(node?.id);
+
+            if (!position) {
+                return;
+            }
+
+            const { x, y } = position;
             const ownerId = this.getOwner(node);
             const defenceLevel = this.getDefenceLevel(node);
             const ownerColor = this.getOwnerColor(ownerId);
