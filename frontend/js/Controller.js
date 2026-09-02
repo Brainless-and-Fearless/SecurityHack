@@ -18,12 +18,25 @@ export class Controller {
         this.connectionStatus = document.getElementById(
             'connection-status'
         );
+        this.forfeitGameBtn = document.getElementById(
+            'forfeit-game-btn'
+        );
+        this.forfeitConfirmPanel = document.getElementById(
+            'forfeit-confirm-panel'
+        );
+        this.forfeitStayBtn = document.getElementById(
+            'forfeit-stay-btn'
+        );
+        this.forfeitConfirmBtn = document.getElementById(
+            'forfeit-confirm-btn'
+        );
         this.openBestiaryBtn = document.getElementById(
             'open-bestiary-btn'
         );
 
         this.taskModal = document.getElementById('task-modal');
         this.taskTitle = document.getElementById('task-title');
+        this.taskTopic = document.getElementById('task-topic');
         this.taskDesc = document.getElementById('task-desc');
         this.taskAnswer = document.getElementById('task-answer');
         this.taskOptions = document.getElementById('task-options');
@@ -32,6 +45,9 @@ export class Controller {
         );
         this.cancelTaskBtn = document.getElementById(
             'cancel-task-btn'
+        );
+        this.taskOpenBestiaryBtn = document.getElementById(
+            'task-open-bestiary-btn'
         );
 
         this.nodeUpgradePanel = document.getElementById(
@@ -61,12 +77,14 @@ export class Controller {
         );
 
         this.activeTask = null;
+        this.taskResultEducation = null;
         this.choiceAnswerPending = false;
         this.taskOptionButtons = [];
         this.selectedUpgradeNodeId = null;
         this.isGameFinished = false;
         this.isResumingSession = false;
         this.knowledgeRefreshAfterResume = false;
+        this.forfeitPending = false;
 
         this._prevResources = null;
         this._prevScore = null;
@@ -112,6 +130,19 @@ export class Controller {
             () => this.openBestiaryFromEntry()
         );
 
+        this.forfeitGameBtn?.addEventListener(
+            'click',
+            () => this.showForfeitConfirmation()
+        );
+        this.forfeitStayBtn?.addEventListener(
+            'click',
+            () => this.cancelForfeitConfirmation()
+        );
+        this.forfeitConfirmBtn?.addEventListener(
+            'click',
+            () => this.confirmForfeit()
+        );
+
         lv.setEntryMode('create');
         lv.startAmbientLoop();
 
@@ -123,6 +154,11 @@ export class Controller {
         this.cancelTaskBtn?.addEventListener(
             'click',
             () => this.handleCancelTask()
+        );
+
+        this.taskOpenBestiaryBtn?.addEventListener(
+            'click',
+            () => this.handleOpenTaskResultKnowledge()
         );
 
         this.upgradeNodeBtn?.addEventListener(
@@ -236,6 +272,10 @@ export class Controller {
     }
 
     onNetworkError(message) {
+        if (this.forfeitPending) {
+            this.resetForfeitConfirmation();
+        }
+
         this.bestiaryView?.recoverChallengeSubmission?.();
 
         this.lobbyView.showToast(
@@ -268,13 +308,94 @@ export class Controller {
         this.network.leaveRoom();
     }
 
+    showForfeitConfirmation() {
+        if (this.model?.state?.status !== 'running') {
+            return false;
+        }
+
+        this.forfeitConfirmPanel?.classList.remove('hidden');
+        return true;
+    }
+
+    cancelForfeitConfirmation() {
+        if (this.forfeitPending) {
+            return false;
+        }
+
+        this.forfeitConfirmPanel?.classList.add('hidden');
+        return true;
+    }
+
+    confirmForfeit() {
+        if (
+            this.forfeitPending
+            || !this.isNetworkActionAvailable()
+        ) {
+            return false;
+        }
+
+        this.forfeitPending = true;
+        if (this.forfeitConfirmBtn) {
+            this.forfeitConfirmBtn.disabled = true;
+        }
+        if (this.forfeitStayBtn) {
+            this.forfeitStayBtn.disabled = true;
+        }
+        this.network.leaveRoom();
+        return true;
+    }
+
+    resetForfeitConfirmation() {
+        this.forfeitPending = false;
+        this.forfeitConfirmPanel?.classList.add('hidden');
+        if (this.forfeitConfirmBtn) {
+            this.forfeitConfirmBtn.disabled = false;
+        }
+        if (this.forfeitStayBtn) {
+            this.forfeitStayBtn.disabled = false;
+        }
+    }
+
     onRoomLeft() {
+        const wasInRunningGame = (
+            this.model?.state?.status === 'running'
+        );
+
         this.room = null;
+        this.resetForfeitConfirmation();
+        this.closeTaskModal();
+        this.closeNodeUpgradePanel();
+        this.gameFinishedPanel?.classList.add('hidden');
+        this.gameScreen?.classList.add('hidden');
+        this.forfeitGameBtn?.classList.add('hidden');
         this.bestiaryView?.hide?.();
+        this.model?.resetGame?.();
+        this.isGameFinished = false;
+        this.isResumingSession = false;
+        this.knowledgeRefreshAfterResume = false;
+        this._prevResources = null;
+        this._prevScore = null;
+        this.audio.resetForNewMatch();
+
+        if (this.playerName) {
+            this.playerName.textContent = 'Игрок';
+        }
+        if (this.playerScore) {
+            this.playerScore.textContent = 'Очки: 0';
+        }
+        if (this.playerResources) {
+            this.playerResources.textContent = '0';
+        }
+        if (this.gameTimer) {
+            this.gameTimer.textContent = '0:00';
+        }
         this.lobbyView.clearMapPreview();
 
         this.lobbyView.showEntryScreen();
         this.lobbyView.resetEntryForm();
+        if (wasInRunningGame) {
+            this.lobbyView.startAmbientLoop?.();
+        }
     }
 
     handleStartGame() {
@@ -295,6 +416,13 @@ export class Controller {
             gameState.gameId,
             gameState.game
         );
+
+        if (this.model.state.status === 'running') {
+            this.forfeitGameBtn?.classList.remove('hidden');
+        } else {
+            this.forfeitGameBtn?.classList.add('hidden');
+            this.resetForfeitConfirmation();
+        }
 
         this.updateHud();
         this.audio.updateMatchTimer(
@@ -361,6 +489,8 @@ export class Controller {
         this.gameScreen.classList.remove(
             'hidden'
         );
+        this.forfeitGameBtn?.classList.remove('hidden');
+        this.resetForfeitConfirmation();
         this.bestiaryView?.showForGame?.();
 
         this.playerName.textContent =
@@ -397,7 +527,7 @@ export class Controller {
         return true;
     }
 
-    handleKnowledgeModuleSelected(moduleId) {
+    handleKnowledgeModuleSelected(moduleId, beforeOpen = null) {
         if (
             !this.isNetworkActionAvailable()
             || typeof this.network.openKnowledge !== 'function'
@@ -405,8 +535,26 @@ export class Controller {
             return false;
         }
 
+        beforeOpen?.();
         this.network.openKnowledge(moduleId);
         return true;
+    }
+
+    handleOpenTaskResultKnowledge() {
+        const moduleId =
+            this.taskResultEducation?.knowledge_module_id;
+
+        if (!moduleId) {
+            return false;
+        }
+
+        return this.handleKnowledgeModuleSelected(
+            moduleId,
+            () => {
+                this.closeTaskModal();
+                this.bestiaryView?.showForGame?.();
+            },
+        );
     }
 
     handleKnowledgeChallengeSubmit(moduleId, challengeId, answer) {
@@ -686,6 +834,7 @@ export class Controller {
 
         const task = message.task;
 
+        this.resetTaskResultState();
         this.activeTask = task;
         this.choiceAnswerPending = false;
 
@@ -705,6 +854,8 @@ export class Controller {
 
         this.taskTitle.textContent =
             'Взлом узла';
+
+        this.showTaskTopic(message.education);
 
         this.taskDesc.textContent =
             task.question;
@@ -757,6 +908,13 @@ export class Controller {
 
     onAttackResolved(message) {
         this.activeTask = null;
+        this.taskResultEducation = message.education ?? null;
+
+        if (this.taskResultEducation?.knowledge_module_id) {
+            this.taskOpenBestiaryBtn?.classList.remove('hidden');
+        } else {
+            this.taskOpenBestiaryBtn?.classList.add('hidden');
+        }
 
         this.showTaskResultState();
 
@@ -770,42 +928,40 @@ export class Controller {
                 'Продолжить';
         }
 
-        if (message.success) {
-            this.audio.playEffect('success');
+        const explanation =
+            message.education?.explanation
+            ?? message.explanation
+            ?? message.theory
+            ?? 'Объяснение отсутствует.';
 
-            this.taskTitle.textContent =
-                'Узел успешно захвачен';
+        this.showTaskTopic(message.education);
+        this.taskTitle.textContent = message.success
+            ? 'Верно'
+            : 'Неверно';
+        this.taskDesc.textContent = explanation;
 
-            this.taskDesc.textContent =
-                message.explanation
-                || 'Объяснение отсутствует.';
-
-            this.taskModal.classList.remove(
-                'hidden'
-            );
-
-            this.lobbyView.showToast(
-                'success',
-                `Узел захвачен! +${message.score_change} очков`
-            );
-
-            return;
-        }
-
-        this.audio.playEffect('wrong');
-
-        this.taskTitle.textContent =
-            'Попытка не удалась';
-
-        this.taskDesc.textContent =
-            message.theory
-            || 'Теоретическая справка отсутствует.';
-
-        this.taskAnswer.value = '';
+        this.taskModal.classList.remove('is-success-result');
+        this.taskModal.classList.remove('is-failure-result');
+        this.taskModal.classList.add(
+            message.success
+                ? 'is-success-result'
+                : 'is-failure-result'
+        );
 
         this.taskModal.classList.remove(
             'hidden'
         );
+
+        if (message.success) {
+            this.audio.playEffect('success');
+            this.lobbyView.showToast(
+                'success',
+                `Узел захвачен! +${message.score_change} очков`
+            );
+            return;
+        }
+
+        this.audio.playEffect('wrong');
     }
 
     submitChoiceAnswer(optionText) {
@@ -903,7 +1059,39 @@ export class Controller {
         }
     }
 
+    showTaskTopic(education) {
+        const title = education?.knowledge_module_title;
+
+        if (!title) {
+            this.taskTopic?.classList.add('hidden');
+            if (this.taskTopic) {
+                this.taskTopic.textContent = '';
+            }
+            return;
+        }
+
+        this.taskTopic.textContent = `Тема: ${title}`;
+        this.taskTopic.classList.remove('hidden');
+    }
+
+    resetTaskResultState() {
+        this.taskResultEducation = null;
+        this.taskModal?.classList.remove('is-success-result');
+        this.taskModal?.classList.remove('is-failure-result');
+        this.taskOpenBestiaryBtn?.classList.add('hidden');
+
+        if (this.taskTopic) {
+            this.taskTopic.textContent = '';
+            this.taskTopic.classList.add('hidden');
+        }
+    }
+
     handleCancelTask() {
+        if (!this.activeTask) {
+            this.closeTaskModal();
+            return;
+        }
+
         if (
             this.network.connectionState === 'reconnecting'
             || this.network.connectionState === 'disconnected'
@@ -911,14 +1099,9 @@ export class Controller {
             return;
         }
 
-        if (this.activeTask) {
-            this.network.cancelAttack(
-                this.activeTask.id
-            );
-            return;
-        }
-
-        this.closeTaskModal();
+        this.network.cancelAttack(
+            this.activeTask.id
+        );
     }
 
     onAttackCancelled(message) {
@@ -944,11 +1127,27 @@ export class Controller {
         this.choiceAnswerPending = false;
         this.clearTaskOptions();
         this.activeTask = null;
+        this.resetTaskResultState();
+
+        if (this.taskTitle) {
+            this.taskTitle.textContent = '';
+        }
+        if (this.taskDesc) {
+            this.taskDesc.textContent = '';
+        }
+        if (this.taskAnswer) {
+            this.taskAnswer.value = '';
+        }
+        if (this.cancelTaskBtn) {
+            this.cancelTaskBtn.textContent = 'Прервать';
+        }
     }
 
     onGameFinished(message) {
         this.isGameFinished = true;
 
+        this.forfeitGameBtn?.classList.add('hidden');
+        this.resetForfeitConfirmation();
         this.closeTaskModal();
         this.closeNodeUpgradePanel();
 

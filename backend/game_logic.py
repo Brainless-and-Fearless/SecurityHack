@@ -181,6 +181,42 @@ def finish_game(game: GameState) -> Optional[str]:
     return winner_id
 
 
+def forfeit_player(
+    game: GameState,
+    player_id: str,
+) -> list[str]:
+    """Remove one player from a running match and return removed task IDs."""
+
+    if game.status != GameStatus.RUNNING:
+        raise ValueError("GAME_NOT_RUNNING")
+
+    if player_id not in game.players:
+        raise ValueError("PLAYER_NOT_IN_GAME")
+
+    task_ids_before = list(game.tasks)
+
+    for task_id, task in list(game.tasks.items()):
+        if task.player_id == player_id:
+            cancel_attack_state(game, player_id, task_id)
+
+    for node in game.nodes.values():
+        if node.owner_id == player_id:
+            node.owner_id = None
+        if node.active_attack_player_id == player_id:
+            node.active_attack_player_id = None
+
+    del game.players[player_id]
+
+    if len(game.players) <= 1:
+        finish_game(game)
+
+    return [
+        task_id
+        for task_id in task_ids_before
+        if task_id not in game.tasks
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Attack
 # ---------------------------------------------------------------------------

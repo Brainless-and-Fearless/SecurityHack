@@ -1,5 +1,9 @@
 export class Model {
     constructor() {
+        this.resetGame();
+    }
+
+    resetGame() {
         this.state = {
             gameId: null,
             status: 'waiting',

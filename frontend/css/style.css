@@ -688,7 +688,8 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
 /* Модальное окно задачи */
 #task-modal,
 #node-upgrade-panel,
-#game-finished-panel {
+#game-finished-panel,
+#forfeit-confirm-panel {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -700,8 +701,37 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
     min-width: 300px;
 }
 
+.forfeit-game-btn {
+    white-space: nowrap;
+}
+
+.forfeit-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
 #game-finished-details {
     white-space: pre-line;
+}
+
+.task-topic {
+    color: var(--surface-muted);
+    font-size: 12px;
+}
+
+#task-desc {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+}
+
+#task-modal.is-success-result #task-title {
+    color: var(--success-color);
+}
+
+#task-modal.is-failure-result #task-title {
+    color: var(--danger-color);
 }
 
 .task-options {

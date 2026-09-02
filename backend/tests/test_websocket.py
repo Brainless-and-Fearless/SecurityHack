@@ -5,7 +5,12 @@ from fastapi.testclient import TestClient
 from network_models import RoomStateMessage
 from main import app
 from task_manager import TaskManager
-from models import DefenceLevel, GameStatus, TaskTemplate
+from models import (
+    DefenceLevel,
+    GameStatus,
+    TaskInteractionType,
+    TaskTemplate,
+)
 from knowledge_logic import select_access_challenge
 from knowledge_pool import (
     ACCESS_CHALLENGES_BY_ID,
@@ -22,6 +27,24 @@ async def set_game_remaining_time(game_id, remaining_time_seconds):
 
 async def get_test_game(game_id):
     return await app.state.game_repository.get_game(game_id)
+
+
+def assert_payload_has_no_private_education_fields(payload):
+    prohibited = {
+        "explanation",
+        "theory",
+        "answer",
+        "accepted_answers",
+        "content",
+    }
+
+    if isinstance(payload, dict):
+        assert prohibited.isdisjoint(payload)
+        for value in payload.values():
+            assert_payload_has_no_private_education_fields(value)
+    elif isinstance(payload, list):
+        for value in payload:
+            assert_payload_has_no_private_education_fields(value)
 
 
 async def update_resume_test_state(game_id, player_id):
@@ -54,6 +77,7 @@ def create_test_websocket_task_manager():
                 answer="answer",
                 explanation="Explanation K1",
                 theory="Theory K1",
+                knowledge_module_id="data_encoding",
             ),
             TaskTemplate(
                 id="test_k2",
@@ -63,6 +87,7 @@ def create_test_websocket_task_manager():
                 answer="answer",
                 explanation="Explanation K2",
                 theory="Theory K2",
+                knowledge_module_id="data_encoding",
             ),
             TaskTemplate(
                 id="test_k3",
@@ -72,6 +97,31 @@ def create_test_websocket_task_manager():
                 answer="answer",
                 explanation="Explanation K3",
                 theory="Theory K3",
+                knowledge_module_id="data_encoding",
+            ),
+        ]
+    )
+
+
+def create_single_choice_websocket_task_manager():
+    return TaskManager(
+        [
+            TaskTemplate(
+                id="test_choice_k1",
+                difficulty=DefenceLevel.K1,
+                category="TEST",
+                question="Choose the correct option",
+                answer="Correct option",
+                interaction_type=TaskInteractionType.SINGLE_CHOICE,
+                options=[
+                    "Wrong one",
+                    "Correct option",
+                    "Wrong two",
+                    "Wrong three",
+                ],
+                explanation="Choice explanation K1",
+                theory="Choice theory K1",
+                knowledge_module_id="crypto_fundamentals",
             ),
         ]
     )
@@ -155,6 +205,7 @@ def start_two_player_websocket_attack(
     return {
         "room_id": host_created["room_id"],
         "game_id": host_game_state["game_id"],
+        "attack_started": attack_started,
         "task": attack_started["task"],
         "target_node_id": target_node_id,
         "host_player_id": host_player_id,
@@ -911,6 +962,17 @@ def test_answer_task_over_websocket_resolves_attack():
                     assert task["player_id"] == host_player_id
                     assert task["question"] == "Question K1"
                     assert task["template_id"] == "test_k1"
+                    assert attack_started["education"] == {
+                        "knowledge_module_id": "data_encoding",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "data_encoding"
+                            ].title
+                        ),
+                    }
+                    assert_payload_has_no_private_education_fields(
+                        attack_started
+                    )
 
                     attack_game_state = host_ws.receive_json()
                     player_attack_game_state = player_ws.receive_json()
@@ -919,6 +981,12 @@ def test_answer_task_over_websocket_resolves_attack():
                     assert (
                         player_attack_game_state["type"]
                         == "GAME_STATE"
+                    )
+                    assert_payload_has_no_private_education_fields(
+                        attack_game_state
+                    )
+                    assert_payload_has_no_private_education_fields(
+                        player_attack_game_state
                     )
 
                     host_ws.send_json(
@@ -954,12 +1022,32 @@ def test_answer_task_over_websocket_resolves_attack():
                         response["explanation"]
                         == "Explanation K1"
                     )
+                    assert response["education"] == {
+                        "knowledge_module_id": "data_encoding",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "data_encoding"
+                            ].title
+                        ),
+                        "explanation": "Explanation K1",
+                    }
+                    assert set(response["education"]) == {
+                        "knowledge_module_id",
+                        "knowledge_module_title",
+                        "explanation",
+                    }
 
                     game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
 
                     assert (
                         game_state["type"]
                         == "GAME_STATE"
+                    )
+                    assert player_game_state["type"] == "GAME_STATE"
+                    assert player_game_state == game_state
+                    assert_payload_has_no_private_education_fields(
+                        game_state
                     )
 
                     updated_game = game_state["game"]
@@ -980,6 +1068,134 @@ def test_answer_task_over_websocket_resolves_attack():
 
                     assert task["id"] not in updated_game["tasks"]
 
+        finally:
+            app.state.task_manager = original_task_manager
+
+
+def test_incorrect_answer_preserves_legacy_theory_and_adds_private_education():
+    with TestClient(app) as client:
+        original_task_manager = app.state.task_manager
+        app.state.task_manager = create_test_websocket_task_manager()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    attack = start_two_player_websocket_attack(
+                        host_ws,
+                        player_ws,
+                    )
+                    before = client.portal.call(
+                        get_test_game,
+                        attack["game_id"],
+                    )
+                    before_player = before.players[
+                        attack["host_player_id"]
+                    ]
+                    score_before = before_player.score
+                    resources_before = before_player.resources
+
+                    host_ws.send_json({
+                        "type": "ANSWER_TASK",
+                        "request_id": "req_wrong_education",
+                        "task_id": attack["task"]["id"],
+                        "answer": "wrong",
+                    })
+
+                    response = host_ws.receive_json()
+                    host_game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
+
+                    assert response["type"] == "ATTACK_RESOLVED"
+                    assert response["success"] is False
+                    assert response["score_change"] == -3
+                    assert response["theory"] == "Theory K1"
+                    assert response["explanation"] is None
+                    assert response["education"] == {
+                        "knowledge_module_id": "data_encoding",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "data_encoding"
+                            ].title
+                        ),
+                        "explanation": "Explanation K1",
+                    }
+
+                    assert host_game_state["type"] == "GAME_STATE"
+                    assert player_game_state["type"] == "GAME_STATE"
+                    assert player_game_state == host_game_state
+                    assert_payload_has_no_private_education_fields(
+                        player_game_state
+                    )
+
+                    player = host_game_state["game"]["players"][
+                        attack["host_player_id"]
+                    ]
+                    assert player["score"] == score_before - 3
+                    assert player["resources"] == resources_before
+        finally:
+            app.state.task_manager = original_task_manager
+
+
+def test_single_choice_websocket_flow_preserves_private_education_contract():
+    with TestClient(app) as client:
+        original_task_manager = app.state.task_manager
+        app.state.task_manager = create_single_choice_websocket_task_manager()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    attack = start_two_player_websocket_attack(
+                        host_ws,
+                        player_ws,
+                    )
+                    started = attack["attack_started"]
+                    task = started["task"]
+
+                    assert task["interaction_type"] == "single_choice"
+                    assert task["options"] == [
+                        "Wrong one",
+                        "Correct option",
+                        "Wrong two",
+                        "Wrong three",
+                    ]
+                    assert started["education"] == {
+                        "knowledge_module_id": "crypto_fundamentals",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "crypto_fundamentals"
+                            ].title
+                        ),
+                    }
+                    assert_payload_has_no_private_education_fields(started)
+
+                    host_ws.send_json({
+                        "type": "ANSWER_TASK",
+                        "request_id": "req_choice_answer",
+                        "task_id": task["id"],
+                        "answer": "Correct option",
+                    })
+
+                    resolved = host_ws.receive_json()
+                    host_game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
+
+                    assert resolved["type"] == "ATTACK_RESOLVED"
+                    assert resolved["success"] is True
+                    assert resolved["education"] == {
+                        "knowledge_module_id": "crypto_fundamentals",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "crypto_fundamentals"
+                            ].title
+                        ),
+                        "explanation": "Choice explanation K1",
+                    }
+                    assert host_game_state["type"] == "GAME_STATE"
+                    assert player_game_state["type"] == "GAME_STATE"
+                    assert player_game_state == host_game_state
+                    assert_payload_has_no_private_education_fields(
+                        player_game_state
+                    )
         finally:
             app.state.task_manager = original_task_manager
 
@@ -2166,7 +2382,7 @@ def test_host_lobby_leave_transfers_host_to_first_remaining_player():
                 assert room.host_id == joined["player_id"]
 
 
-def test_running_game_rejects_leave_without_mutating_session_or_membership():
+def test_three_player_running_leave_forfeits_and_match_continues():
     with TestClient(app) as client:
         game_loop_manager = app.state.game_loop_manager
         original_start = game_loop_manager.start
@@ -2174,36 +2390,170 @@ def test_running_game_rejects_leave_without_mutating_session_or_membership():
 
         try:
             with client.websocket_connect("/ws") as host_ws:
-                with client.websocket_connect("/ws") as player_ws:
-                    started = start_two_player_websocket_game(
-                        host_ws,
-                        player_ws,
-                    )
-                    token = started["host_session_token"]
+                with client.websocket_connect("/ws") as bob_ws:
+                    with client.websocket_connect("/ws") as charlie_ws:
+                        host_ws.send_json({
+                            "type": "CREATE_ROOM",
+                            "request_id": "req_forfeit_create",
+                            "nickname": "Alice",
+                        })
+                        host_ws.receive_json()
+                        created = host_ws.receive_json()
 
-                    host_ws.send_json({
+                        bob_ws.send_json({
+                            "type": "JOIN_ROOM",
+                            "request_id": "req_forfeit_join_bob",
+                            "room_id": created["room_id"],
+                            "nickname": "Bob",
+                        })
+                        bob_ws.receive_json()
+                        bob_joined = bob_ws.receive_json()
+                        host_ws.receive_json()
+
+                        charlie_ws.send_json({
+                            "type": "JOIN_ROOM",
+                            "request_id": "req_forfeit_join_charlie",
+                            "room_id": created["room_id"],
+                            "nickname": "Charlie",
+                        })
+                        charlie_ws.receive_json()
+                        charlie_joined = charlie_ws.receive_json()
+                        host_ws.receive_json()
+                        bob_ws.receive_json()
+
+                        host_ws.send_json({
+                            "type": "START_GAME",
+                            "request_id": "req_forfeit_start",
+                        })
+                        host_ws.receive_json()
+                        host_game_state = host_ws.receive_json()
+                        bob_ws.receive_json()
+                        bob_ws.receive_json()
+                        charlie_ws.receive_json()
+                        charlie_ws.receive_json()
+
+                        host_ws.send_json({
+                            "type": "LEAVE_ROOM",
+                            "request_id": "req_running_forfeit",
+                        })
+
+                        assert host_ws.receive_json()["type"] == "ROOM_LEFT"
+                        bob_room_state = bob_ws.receive_json()
+                        bob_game_state = bob_ws.receive_json()
+                        charlie_room_state = charlie_ws.receive_json()
+                        charlie_game_state = charlie_ws.receive_json()
+
+                        remaining_ids = {
+                            bob_joined["player_id"],
+                            charlie_joined["player_id"],
+                        }
+                        assert bob_room_state["type"] == "ROOM_STATE"
+                        assert charlie_room_state["type"] == "ROOM_STATE"
+                        assert {
+                            player["id"]
+                            for player in bob_room_state["players"]
+                        } == remaining_ids
+                        assert bob_room_state["you"]["isHost"] is True
+                        assert bob_game_state["type"] == "GAME_STATE"
+                        assert charlie_game_state["type"] == "GAME_STATE"
+                        assert bob_game_state["game"]["status"] == "running"
+                        assert set(
+                            bob_game_state["game"]["players"]
+                        ) == remaining_ids
+
+                        room = client.portal.call(
+                            app.state.room_repository.get_room,
+                            created["room_id"],
+                        )
+                        game = client.portal.call(
+                            app.state.game_repository.get_game,
+                            host_game_state["game_id"],
+                        )
+                        assert set(room.player_ids) == remaining_ids
+                        assert room.host_id == bob_joined["player_id"]
+                        assert game.status == GameStatus.RUNNING
+                        assert set(game.players) == remaining_ids
+                        assert app.state.session_registry.get(
+                            created["session_token"]
+                        ) is None
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_running_forfeit_cleans_attack_finishes_and_invalidates_resume():
+    with TestClient(app) as client:
+        original_task_manager = app.state.task_manager
+        original_loop_task_manager = app.state.game_loop_manager.task_manager
+        test_task_manager = create_test_websocket_task_manager()
+        app.state.task_manager = test_task_manager
+        app.state.game_loop_manager.task_manager = test_task_manager
+
+        try:
+            with client.websocket_connect("/ws") as alice_ws:
+                with client.websocket_connect("/ws") as bob_ws:
+                    started = start_two_player_websocket_attack(
+                        alice_ws,
+                        bob_ws,
+                    )
+                    task_id = started["task"]["id"]
+
+                    alice_ws.send_json({
                         "type": "LEAVE_ROOM",
-                        "request_id": "req_running_leave",
+                        "request_id": "req_forfeit_alice",
                     })
-                    error = host_ws.receive_json()
 
-                    assert error["type"] == "ERROR"
-                    assert error["code"] == (
-                        "LEAVE_NOT_ALLOWED_AFTER_GAME_START"
+                    assert alice_ws.receive_json() == {
+                        "type": "ROOM_LEFT",
+                        "request_id": "req_forfeit_alice",
+                        "room_id": started["room_id"],
+                    }
+                    room_state = bob_ws.receive_json()
+                    game_state = bob_ws.receive_json()
+                    finished = bob_ws.receive_json()
+
+                    assert room_state["type"] == "ROOM_STATE"
+                    assert [
+                        player["id"] for player in room_state["players"]
+                    ] == [started["player_id"]]
+                    assert room_state["you"]["isHost"] is True
+                    assert game_state["type"] == "GAME_STATE"
+                    assert game_state["game"]["status"] == "finished"
+                    assert started["host_player_id"] not in (
+                        game_state["game"]["players"]
                     )
+                    assert task_id not in game_state["game"]["tasks"]
+                    assert all(
+                        node["owner_id"] != started["host_player_id"]
+                        and node["active_attack_player_id"]
+                        != started["host_player_id"]
+                        for node in game_state["game"]["nodes"].values()
+                    )
+                    assert task_id not in test_task_manager.tasks
+                    assert finished["type"] == "GAME_FINISHED"
+                    assert finished["winner_id"] == started["player_id"]
+
                     room = client.portal.call(
                         app.state.room_repository.get_room,
                         started["room_id"],
                     )
-                    game = client.portal.call(
-                        app.state.game_repository.get_game,
-                        started["game_id"],
-                    )
-                    assert started["host_player_id"] in room.player_ids
-                    assert started["host_player_id"] in game.players
-                    assert app.state.session_registry.get(token) is not None
+                    assert room.player_ids == [started["player_id"]]
+                    assert room.host_id == started["player_id"]
+                    assert app.state.session_registry.get(
+                        started["host_session_token"]
+                    ) is None
+
+                    with client.websocket_connect("/ws") as resumed_ws:
+                        resumed_ws.send_json({
+                            "type": "RESUME_SESSION",
+                            "request_id": "req_resume_forfeit",
+                            "session_token": started["host_session_token"],
+                        })
+                        invalid = resumed_ws.receive_json()
+                        assert invalid["type"] == "ERROR"
+                        assert invalid["code"] == "INVALID_SESSION"
         finally:
-            game_loop_manager.start = original_start
+            app.state.task_manager = original_task_manager
+            app.state.game_loop_manager.task_manager = original_loop_task_manager
 
 
 def test_knowledge_unlock_is_isolated_between_players_and_payloads_are_safe():
