@@ -415,6 +415,10 @@ test('forwards ATTACK_STARTED to onAttackStarted handler', () => {
             template_id: 'test_k1',
             question: 'Question',
         },
+        education: {
+            knowledge_module_id: 'modern_encryption',
+            knowledge_module_title: 'Современное шифрование',
+        },
     };
 
     network._handleMessage({
@@ -447,6 +451,11 @@ test('forwards ATTACK_RESOLVED to onAttackResolved handler', () => {
         score_change: -3,
         theory: 'Теория задачи',
         explanation: null,
+        education: {
+            knowledge_module_id: 'modern_encryption',
+            knowledge_module_title: 'Современное шифрование',
+            explanation: 'Авторитетное объяснение',
+        },
     };
 
     network._handleMessage({

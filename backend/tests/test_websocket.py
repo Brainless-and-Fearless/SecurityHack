@@ -5,7 +5,12 @@ from fastapi.testclient import TestClient
 from network_models import RoomStateMessage
 from main import app
 from task_manager import TaskManager
-from models import DefenceLevel, GameStatus, TaskTemplate
+from models import (
+    DefenceLevel,
+    GameStatus,
+    TaskInteractionType,
+    TaskTemplate,
+)
 from knowledge_logic import select_access_challenge
 from knowledge_pool import (
     ACCESS_CHALLENGES_BY_ID,
@@ -22,6 +27,24 @@ async def set_game_remaining_time(game_id, remaining_time_seconds):
 
 async def get_test_game(game_id):
     return await app.state.game_repository.get_game(game_id)
+
+
+def assert_payload_has_no_private_education_fields(payload):
+    prohibited = {
+        "explanation",
+        "theory",
+        "answer",
+        "accepted_answers",
+        "content",
+    }
+
+    if isinstance(payload, dict):
+        assert prohibited.isdisjoint(payload)
+        for value in payload.values():
+            assert_payload_has_no_private_education_fields(value)
+    elif isinstance(payload, list):
+        for value in payload:
+            assert_payload_has_no_private_education_fields(value)
 
 
 async def update_resume_test_state(game_id, player_id):
@@ -54,6 +77,7 @@ def create_test_websocket_task_manager():
                 answer="answer",
                 explanation="Explanation K1",
                 theory="Theory K1",
+                knowledge_module_id="data_encoding",
             ),
             TaskTemplate(
                 id="test_k2",
@@ -63,6 +87,7 @@ def create_test_websocket_task_manager():
                 answer="answer",
                 explanation="Explanation K2",
                 theory="Theory K2",
+                knowledge_module_id="data_encoding",
             ),
             TaskTemplate(
                 id="test_k3",
@@ -72,6 +97,31 @@ def create_test_websocket_task_manager():
                 answer="answer",
                 explanation="Explanation K3",
                 theory="Theory K3",
+                knowledge_module_id="data_encoding",
+            ),
+        ]
+    )
+
+
+def create_single_choice_websocket_task_manager():
+    return TaskManager(
+        [
+            TaskTemplate(
+                id="test_choice_k1",
+                difficulty=DefenceLevel.K1,
+                category="TEST",
+                question="Choose the correct option",
+                answer="Correct option",
+                interaction_type=TaskInteractionType.SINGLE_CHOICE,
+                options=[
+                    "Wrong one",
+                    "Correct option",
+                    "Wrong two",
+                    "Wrong three",
+                ],
+                explanation="Choice explanation K1",
+                theory="Choice theory K1",
+                knowledge_module_id="crypto_fundamentals",
             ),
         ]
     )
@@ -155,6 +205,7 @@ def start_two_player_websocket_attack(
     return {
         "room_id": host_created["room_id"],
         "game_id": host_game_state["game_id"],
+        "attack_started": attack_started,
         "task": attack_started["task"],
         "target_node_id": target_node_id,
         "host_player_id": host_player_id,
@@ -911,6 +962,17 @@ def test_answer_task_over_websocket_resolves_attack():
                     assert task["player_id"] == host_player_id
                     assert task["question"] == "Question K1"
                     assert task["template_id"] == "test_k1"
+                    assert attack_started["education"] == {
+                        "knowledge_module_id": "data_encoding",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "data_encoding"
+                            ].title
+                        ),
+                    }
+                    assert_payload_has_no_private_education_fields(
+                        attack_started
+                    )
 
                     attack_game_state = host_ws.receive_json()
                     player_attack_game_state = player_ws.receive_json()
@@ -919,6 +981,12 @@ def test_answer_task_over_websocket_resolves_attack():
                     assert (
                         player_attack_game_state["type"]
                         == "GAME_STATE"
+                    )
+                    assert_payload_has_no_private_education_fields(
+                        attack_game_state
+                    )
+                    assert_payload_has_no_private_education_fields(
+                        player_attack_game_state
                     )
 
                     host_ws.send_json(
@@ -954,12 +1022,32 @@ def test_answer_task_over_websocket_resolves_attack():
                         response["explanation"]
                         == "Explanation K1"
                     )
+                    assert response["education"] == {
+                        "knowledge_module_id": "data_encoding",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "data_encoding"
+                            ].title
+                        ),
+                        "explanation": "Explanation K1",
+                    }
+                    assert set(response["education"]) == {
+                        "knowledge_module_id",
+                        "knowledge_module_title",
+                        "explanation",
+                    }
 
                     game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
 
                     assert (
                         game_state["type"]
                         == "GAME_STATE"
+                    )
+                    assert player_game_state["type"] == "GAME_STATE"
+                    assert player_game_state == game_state
+                    assert_payload_has_no_private_education_fields(
+                        game_state
                     )
 
                     updated_game = game_state["game"]
@@ -980,6 +1068,134 @@ def test_answer_task_over_websocket_resolves_attack():
 
                     assert task["id"] not in updated_game["tasks"]
 
+        finally:
+            app.state.task_manager = original_task_manager
+
+
+def test_incorrect_answer_preserves_legacy_theory_and_adds_private_education():
+    with TestClient(app) as client:
+        original_task_manager = app.state.task_manager
+        app.state.task_manager = create_test_websocket_task_manager()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    attack = start_two_player_websocket_attack(
+                        host_ws,
+                        player_ws,
+                    )
+                    before = client.portal.call(
+                        get_test_game,
+                        attack["game_id"],
+                    )
+                    before_player = before.players[
+                        attack["host_player_id"]
+                    ]
+                    score_before = before_player.score
+                    resources_before = before_player.resources
+
+                    host_ws.send_json({
+                        "type": "ANSWER_TASK",
+                        "request_id": "req_wrong_education",
+                        "task_id": attack["task"]["id"],
+                        "answer": "wrong",
+                    })
+
+                    response = host_ws.receive_json()
+                    host_game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
+
+                    assert response["type"] == "ATTACK_RESOLVED"
+                    assert response["success"] is False
+                    assert response["score_change"] == -3
+                    assert response["theory"] == "Theory K1"
+                    assert response["explanation"] is None
+                    assert response["education"] == {
+                        "knowledge_module_id": "data_encoding",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "data_encoding"
+                            ].title
+                        ),
+                        "explanation": "Explanation K1",
+                    }
+
+                    assert host_game_state["type"] == "GAME_STATE"
+                    assert player_game_state["type"] == "GAME_STATE"
+                    assert player_game_state == host_game_state
+                    assert_payload_has_no_private_education_fields(
+                        player_game_state
+                    )
+
+                    player = host_game_state["game"]["players"][
+                        attack["host_player_id"]
+                    ]
+                    assert player["score"] == score_before - 3
+                    assert player["resources"] == resources_before
+        finally:
+            app.state.task_manager = original_task_manager
+
+
+def test_single_choice_websocket_flow_preserves_private_education_contract():
+    with TestClient(app) as client:
+        original_task_manager = app.state.task_manager
+        app.state.task_manager = create_single_choice_websocket_task_manager()
+
+        try:
+            with client.websocket_connect("/ws") as host_ws:
+                with client.websocket_connect("/ws") as player_ws:
+                    attack = start_two_player_websocket_attack(
+                        host_ws,
+                        player_ws,
+                    )
+                    started = attack["attack_started"]
+                    task = started["task"]
+
+                    assert task["interaction_type"] == "single_choice"
+                    assert task["options"] == [
+                        "Wrong one",
+                        "Correct option",
+                        "Wrong two",
+                        "Wrong three",
+                    ]
+                    assert started["education"] == {
+                        "knowledge_module_id": "crypto_fundamentals",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "crypto_fundamentals"
+                            ].title
+                        ),
+                    }
+                    assert_payload_has_no_private_education_fields(started)
+
+                    host_ws.send_json({
+                        "type": "ANSWER_TASK",
+                        "request_id": "req_choice_answer",
+                        "task_id": task["id"],
+                        "answer": "Correct option",
+                    })
+
+                    resolved = host_ws.receive_json()
+                    host_game_state = host_ws.receive_json()
+                    player_game_state = player_ws.receive_json()
+
+                    assert resolved["type"] == "ATTACK_RESOLVED"
+                    assert resolved["success"] is True
+                    assert resolved["education"] == {
+                        "knowledge_module_id": "crypto_fundamentals",
+                        "knowledge_module_title": (
+                            KNOWLEDGE_MODULES_BY_ID[
+                                "crypto_fundamentals"
+                            ].title
+                        ),
+                        "explanation": "Choice explanation K1",
+                    }
+                    assert host_game_state["type"] == "GAME_STATE"
+                    assert player_game_state["type"] == "GAME_STATE"
+                    assert player_game_state == host_game_state
+                    assert_payload_has_no_private_education_fields(
+                        player_game_state
+                    )
         finally:
             app.state.task_manager = original_task_manager
 

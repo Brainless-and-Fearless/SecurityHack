@@ -192,11 +192,21 @@ class GameStateMessage(BaseModel):
     game: GameState
 
 
+class TaskEducationContext(BaseModel):
+    knowledge_module_id: str
+    knowledge_module_title: str
+
+
+class TaskEducationFeedback(TaskEducationContext):
+    explanation: str
+
+
 class AttackStartedMessage(BaseModel):
     type: Literal["ATTACK_STARTED"]
     request_id: str
     node_id: str
     task: Task
+    education: TaskEducationContext
 
 
 class AttackResolvedMessage(BaseModel):
@@ -207,6 +217,7 @@ class AttackResolvedMessage(BaseModel):
     score_change: int
     theory: str | None = None
     explanation: str | None = None
+    education: TaskEducationFeedback
 
 
 class AttackCancelledMessage(BaseModel):

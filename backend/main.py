@@ -25,6 +25,10 @@ from knowledge_logic import (
     normalize_knowledge_answer,
     select_access_challenge,
 )
+from education_logic import (
+    build_task_education_context,
+    build_task_education_feedback,
+)
 from session_registry import SessionRegistry
 from presence_manager import PresenceManager
 from redis_repository import (
@@ -895,6 +899,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         request_id=attack_message.request_id,
                         node_id=task.node_id,
                         task=task,
+                        education=build_task_education_context(
+                            task,
+                            websocket.app.state.task_manager,
+                        ),
                     )
 
                     await websocket.send_json(
@@ -1181,6 +1189,11 @@ async def websocket_endpoint(websocket: WebSocket):
                             answer_message.answer,
                         )
 
+                        education = build_task_education_feedback(
+                            task,
+                            task_manager,
+                        )
+
                         score_change = resolve_attack(
                             game,
                             player_id,
@@ -1210,6 +1223,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         score_change=score_change,
                         theory=resolution.theory,
                         explanation=resolution.explanation,
+                        education=education,
                     )
 
                     await websocket.send_json(

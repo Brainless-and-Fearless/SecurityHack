@@ -704,6 +704,25 @@ button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: non
     white-space: pre-line;
 }
 
+.task-topic {
+    color: var(--surface-muted);
+    font-size: 12px;
+}
+
+#task-desc {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+}
+
+#task-modal.is-success-result #task-title {
+    color: var(--success-color);
+}
+
+#task-modal.is-failure-result #task-title {
+    color: var(--danger-color);
+}
+
 .task-options {
     display: flex;
     flex-direction: column;

@@ -137,6 +137,12 @@ class TaskManager:
             "TASK_TEMPLATE_NOT_FOUND"
         )
 
+    def get_template_by_id(
+        self,
+        template_id: str,
+    ) -> TaskTemplate:
+        return self._get_template_by_id(template_id)
+
 
     def get_task(self, task_id: str) -> Task:
         task = self.tasks.get(task_id)

@@ -15,6 +15,8 @@ from network_models import (
     AttackNodeMessage,
     AttackResolvedMessage,
     AttackStartedMessage,
+    TaskEducationContext,
+    TaskEducationFeedback,
     CreateRoomMessage,
     ErrorMessage,
     GameFinishedMessage,
@@ -410,12 +412,20 @@ def test_attack_started_message_accepts_valid_data():
         request_id="req_7",
         node_id="B",
         task=task,
+        education=TaskEducationContext(
+            knowledge_module_id="tls_pki",
+            knowledge_module_title="TLS and PKI",
+        ),
     )
 
     assert message.type == "ATTACK_STARTED"
     assert message.request_id == "req_7"
     assert message.node_id == "B"
     assert message.task == task
+    assert message.education.model_dump() == {
+        "knowledge_module_id": "tls_pki",
+        "knowledge_module_title": "TLS and PKI",
+    }
 
 
 def test_attack_resolved_message_accepts_valid_data():
@@ -425,6 +435,11 @@ def test_attack_resolved_message_accepts_valid_data():
         node_id="B",
         success=True,
         score_change=10,
+        education=TaskEducationFeedback(
+            knowledge_module_id="tls_pki",
+            knowledge_module_title="TLS and PKI",
+            explanation="TLS protects the connection.",
+        ),
     )
 
     assert message.type == "ATTACK_RESOLVED"
@@ -432,6 +447,11 @@ def test_attack_resolved_message_accepts_valid_data():
     assert message.node_id == "B"
     assert message.success is True
     assert message.score_change == 10
+    assert message.education.model_dump() == {
+        "knowledge_module_id": "tls_pki",
+        "knowledge_module_title": "TLS and PKI",
+        "explanation": "TLS protects the connection.",
+    }
 
 
 def test_game_finished_message_accepts_valid_data():

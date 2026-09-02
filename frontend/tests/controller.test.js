@@ -808,6 +808,8 @@ function createMockChoiceButton() {
 
 function createTaskInteractionElements() {
     const children = [];
+    const cancelHandlers = {};
+    const bestiaryHandlers = {};
 
     return {
         'task-modal': {
@@ -815,6 +817,10 @@ function createTaskInteractionElements() {
         },
         'task-title': {
             textContent: '',
+        },
+        'task-topic': {
+            textContent: '',
+            classList: createTrackedClassList('hidden'),
         },
         'task-desc': {
             textContent: '',
@@ -842,8 +848,19 @@ function createTaskInteractionElements() {
             classList: createTrackedClassList(),
         },
         'cancel-task-btn': {
-            addEventListener: vi.fn(),
+            addEventListener: vi.fn((event, handler) => {
+                cancelHandlers[event] = handler;
+            }),
+            click: vi.fn(() => cancelHandlers.click?.()),
             textContent: '',
+        },
+        'task-open-bestiary-btn': {
+            addEventListener: vi.fn((event, handler) => {
+                bestiaryHandlers[event] = handler;
+            }),
+            click: vi.fn(() => bestiaryHandlers.click?.()),
+            textContent: 'Открыть тему в Бестиарии',
+            classList: createTrackedClassList('hidden'),
         },
     };
 }
@@ -927,6 +944,8 @@ function createAttackController(elements = {}) {
         answerTask: vi.fn(),
         cancelAttack: vi.fn(),
         startGame: vi.fn(),
+        listKnowledge: vi.fn(),
+        openKnowledge: vi.fn(),
     };
 
     vi.stubGlobal('document', {
@@ -1822,14 +1841,419 @@ function createInteractionTask(overrides = {}) {
 }
 
 
-function startInteractionTask(controller, task) {
+function startInteractionTask(controller, task, education = undefined) {
     controller.onAttackStarted({
         type: 'ATTACK_STARTED',
         request_id: 'req_interaction',
         node_id: task.node_id,
         task,
+        education,
     });
 }
+
+
+test('active task renders authoritative topic without result content', () => {
+    const elements = createTaskInteractionElements();
+    const { controller, network } = createAttackController(elements);
+
+    startInteractionTask(
+        controller,
+        createInteractionTask(),
+        {
+            knowledge_module_id: 'modern_encryption',
+            knowledge_module_title: 'Современное шифрование',
+        },
+    );
+
+    expect(elements['task-topic'].textContent).toBe(
+        'Тема: Современное шифрование'
+    );
+    expect(elements['task-topic'].classList.contains('hidden')).toBe(false);
+    expect(elements['task-desc'].textContent).toBe(
+        createInteractionTask().question
+    );
+    expect(elements['task-title'].textContent).toBe('Взлом узла');
+    expect(elements['cancel-task-btn'].textContent).toBe('Прервать');
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(network.openKnowledge).not.toHaveBeenCalled();
+    expect(controller.taskResultEducation).toBeNull();
+});
+
+
+test.each([
+    ['text_input', true, 'Верно'],
+    ['single_choice', false, 'Неверно'],
+])('%s task uses shared authoritative educational result', (
+    interactionType,
+    success,
+    expectedStatus,
+) => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    const task = createInteractionTask({
+        interaction_type: interactionType,
+        options: interactionType === 'single_choice'
+            ? ['TLS', 'FTP']
+            : [],
+    });
+    startInteractionTask(controller, task, {
+        knowledge_module_id: 'modern_encryption',
+        knowledge_module_title: 'Современное шифрование',
+    });
+
+    controller.onAttackResolved({
+        success,
+        score_change: success ? 5 : -3,
+        education: {
+            knowledge_module_id: 'modern_encryption',
+            knowledge_module_title: 'Современное шифрование',
+            explanation: 'NEW EDUCATION',
+        },
+        explanation: 'LEGACY EXPLANATION',
+        theory: 'LEGACY THEORY',
+    });
+
+    expect(elements['task-title'].textContent).toBe(expectedStatus);
+    expect(elements['task-desc'].textContent).toBe('NEW EDUCATION');
+    expect(elements['task-desc'].textContent).not.toContain('LEGACY');
+    expect(elements['task-topic'].textContent).toBe(
+        'Тема: Современное шифрование'
+    );
+    expect(elements['task-answer'].classList.contains('hidden')).toBe(true);
+    expect(elements['task-answer'].disabled).toBe(true);
+    expect(elements['submit-task-btn'].classList.contains('hidden')).toBe(true);
+    expect(elements['submit-task-btn'].disabled).toBe(true);
+    expect(elements['task-options'].classList.contains('hidden')).toBe(true);
+    expect(elements['cancel-task-btn'].textContent).toBe('Продолжить');
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(false);
+    expect(elements['task-open-bestiary-btn'].textContent).toBe(
+        'Открыть тему в Бестиарии'
+    );
+    expect(controller.taskResultEducation).toEqual({
+        knowledge_module_id: 'modern_encryption',
+        knowledge_module_title: 'Современное шифрование',
+        explanation: 'NEW EDUCATION',
+    });
+});
+
+
+test('task result deep-link reuses the existing Bestiary path with exact module id', () => {
+    const elements = createTaskInteractionElements();
+    const { controller, network } = createAttackController(elements);
+    const bestiaryView = {
+        showForGame: vi.fn(),
+        renderLocked: vi.fn(),
+        showChallengeFailure: vi.fn(),
+        renderUnlocked: vi.fn(),
+        renderOpened: vi.fn(),
+    };
+    controller.bestiaryView = bestiaryView;
+
+    startInteractionTask(controller, createInteractionTask());
+    controller.onAttackResolved({
+        success: true,
+        score_change: 5,
+        education: {
+            knowledge_module_id: 'modern_encryption',
+            knowledge_module_title: 'Не используется как идентификатор',
+            explanation: 'Explanation',
+        },
+    });
+
+    elements['task-open-bestiary-btn'].click();
+
+    expect(network.openKnowledge).toHaveBeenCalledTimes(1);
+    expect(network.openKnowledge).toHaveBeenCalledWith('modern_encryption');
+    expect(network.listKnowledge).not.toHaveBeenCalled();
+    expect(bestiaryView.showForGame).toHaveBeenCalledTimes(1);
+    expect(controller.bestiaryView).toBe(bestiaryView);
+    expect(elements['task-modal'].classList.contains('hidden')).toBe(true);
+    expect(controller.taskResultEducation).toBeNull();
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+
+    const locked = {
+        module: { id: 'modern_encryption' },
+        challenge: { id: 'gate_1', question: 'Question' },
+    };
+    const opened = {
+        module: { id: 'modern_encryption', content: 'Article' },
+    };
+    const failed = {
+        module_id: 'modern_encryption',
+        challenge_id: 'gate_1',
+    };
+    const unlocked = {
+        module: { id: 'modern_encryption', content: 'Article' },
+    };
+    controller.onKnowledgeLocked(locked);
+    controller.onKnowledgeChallengeFailed(failed);
+    controller.onKnowledgeUnlocked(unlocked);
+    controller.onKnowledgeOpened(opened);
+    expect(bestiaryView.renderLocked).toHaveBeenCalledWith(locked);
+    expect(bestiaryView.showChallengeFailure).toHaveBeenCalledWith(failed);
+    expect(bestiaryView.renderUnlocked).toHaveBeenCalledWith(unlocked.module);
+    expect(bestiaryView.renderOpened).toHaveBeenCalledWith(opened.module);
+});
+
+
+test('task started after a deep-link has no stale result state', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    controller.bestiaryView = { showForGame: vi.fn() };
+    startInteractionTask(controller, createInteractionTask());
+    controller.onAttackResolved({
+        success: true,
+        score_change: 5,
+        education: {
+            knowledge_module_id: 'old_module',
+            knowledge_module_title: 'Old topic',
+            explanation: 'Old explanation',
+        },
+    });
+    elements['task-open-bestiary-btn'].click();
+
+    startInteractionTask(
+        controller,
+        createInteractionTask({
+            id: 'task_after_bestiary',
+            question: 'Fresh question',
+            interaction_type: 'single_choice',
+            options: ['One', 'Two'],
+        }),
+        {
+            knowledge_module_id: 'new_module',
+            knowledge_module_title: 'New topic',
+        },
+    );
+
+    expect(elements['task-modal'].classList.contains('hidden')).toBe(false);
+    expect(elements['task-title'].textContent).toBe('Взлом узла');
+    expect(elements['task-desc'].textContent).toBe('Fresh question');
+    expect(elements['task-topic'].textContent).toBe('Тема: New topic');
+    expect(elements['task-modal'].classList.contains('is-success-result')).toBe(false);
+    expect(elements['task-modal'].classList.contains('is-failure-result')).toBe(false);
+    expect(elements['cancel-task-btn'].textContent).toBe('Прервать');
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(controller.taskResultEducation).toBeNull();
+});
+
+
+test.each(['disconnected', 'reconnecting'])(
+    '%s connection preserves task result when deep-link cannot start',
+    (connectionState) => {
+        const elements = createTaskInteractionElements();
+        const { controller, network } = createAttackController(elements);
+        const bestiaryView = { showForGame: vi.fn() };
+        controller.bestiaryView = bestiaryView;
+        startInteractionTask(controller, createInteractionTask());
+        controller.onAttackResolved({
+            success: false,
+            score_change: -3,
+            education: {
+                knowledge_module_id: 'modern_encryption',
+                knowledge_module_title: 'Современное шифрование',
+                explanation: 'Explanation',
+            },
+        });
+        network.connectionState = connectionState;
+
+        elements['task-open-bestiary-btn'].click();
+
+        expect(network.openKnowledge).not.toHaveBeenCalled();
+        expect(network.listKnowledge).not.toHaveBeenCalled();
+        expect(bestiaryView.showForGame).not.toHaveBeenCalled();
+        expect(elements['task-modal'].classList.contains('hidden')).toBe(false);
+        expect(controller.taskResultEducation).toEqual({
+            knowledge_module_id: 'modern_encryption',
+            knowledge_module_title: 'Современное шифрование',
+            explanation: 'Explanation',
+        });
+        expect(
+            elements['task-open-bestiary-btn'].classList.contains('hidden')
+        ).toBe(false);
+    },
+);
+
+
+test('legacy task result keeps deep-link hidden and Continue available', () => {
+    const elements = createTaskInteractionElements();
+    const { controller, network } = createAttackController(elements);
+    startInteractionTask(controller, createInteractionTask());
+    controller.onAttackResolved({
+        success: false,
+        score_change: -3,
+        theory: 'Legacy explanation',
+    });
+
+    expect(elements['task-desc'].textContent).toBe('Legacy explanation');
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+
+    elements['cancel-task-btn'].click();
+
+    expect(elements['task-modal'].classList.contains('hidden')).toBe(true);
+    expect(network.openKnowledge).not.toHaveBeenCalled();
+    expect(network.answerTask).not.toHaveBeenCalled();
+    expect(network.cancelAttack).not.toHaveBeenCalled();
+});
+
+
+test('attack cancellation clears topic without fabricating educational result', () => {
+    const elements = createTaskInteractionElements();
+    const { controller, network } = createAttackController(elements);
+    const task = createInteractionTask();
+    startInteractionTask(controller, task, {
+        knowledge_module_id: 'modern_encryption',
+        knowledge_module_title: 'Современное шифрование',
+    });
+
+    controller.onAttackCancelled({
+        type: 'ATTACK_CANCELLED',
+        task_id: task.id,
+        node_id: task.node_id,
+    });
+
+    expect(elements['task-modal'].classList.contains('hidden')).toBe(true);
+    expect(elements['task-topic'].textContent).toBe('');
+    expect(elements['task-desc'].textContent).toBe('');
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(controller.activeTask).toBeNull();
+    expect(controller.taskResultEducation).toBeNull();
+    expect(network.openKnowledge).not.toHaveBeenCalled();
+});
+
+
+test('game finish clears an open educational result before final UI', () => {
+    const elements = {
+        ...createGameFinishedElements(),
+        ...createTaskInteractionElements(),
+    };
+    const { controller } = createAttackController(elements);
+    startInteractionTask(controller, createInteractionTask());
+    controller.onAttackResolved({
+        success: false,
+        score_change: -3,
+        education: {
+            knowledge_module_id: 'modern_encryption',
+            knowledge_module_title: 'Современное шифрование',
+            explanation: 'Explanation',
+        },
+    });
+
+    controller.onGameFinished({
+        type: 'GAME_FINISHED',
+        game_id: 'game_1',
+        winner_id: null,
+        is_draw: true,
+        scores: { player_1: 0 },
+    });
+
+    expect(elements['task-modal'].classList.contains('hidden')).toBe(true);
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(controller.taskResultEducation).toBeNull();
+    expect(elements['game-finished-panel'].classList.contains('hidden')).toBe(false);
+});
+
+
+test('Continue closes and clears result without a server action', () => {
+    const elements = createTaskInteractionElements();
+    const { controller, network } = createAttackController(elements);
+    startInteractionTask(controller, createInteractionTask());
+    controller.onAttackResolved({
+        success: true,
+        score_change: 5,
+        education: {
+            knowledge_module_id: 'data_encoding',
+            knowledge_module_title: 'Кодирование данных',
+            explanation: 'Explanation',
+        },
+    });
+    network.connectionState = 'disconnected';
+
+    elements['cancel-task-btn'].click();
+
+    expect(elements['task-modal'].classList.contains('hidden')).toBe(true);
+    expect(elements['task-title'].textContent).toBe('');
+    expect(elements['task-desc'].textContent).toBe('');
+    expect(elements['task-topic'].textContent).toBe('');
+    expect(elements['task-topic'].classList.contains('hidden')).toBe(true);
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(controller.taskResultEducation).toBeNull();
+    expect(network.answerTask).not.toHaveBeenCalled();
+    expect(network.cancelAttack).not.toHaveBeenCalled();
+});
+
+
+test('next task replaces all previous educational result state', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    startInteractionTask(controller, createInteractionTask());
+    controller.onAttackResolved({
+        success: false,
+        score_change: -3,
+        education: {
+            knowledge_module_id: 'old_module',
+            knowledge_module_title: 'Old topic',
+            explanation: 'Old explanation',
+        },
+    });
+    elements['cancel-task-btn'].click();
+
+    startInteractionTask(
+        controller,
+        createInteractionTask({ id: 'next_task', question: 'Next question' }),
+        {
+            knowledge_module_id: 'next_module',
+            knowledge_module_title: 'Next topic',
+        },
+    );
+
+    expect(elements['task-title'].textContent).toBe('Взлом узла');
+    expect(elements['task-desc'].textContent).toBe('Next question');
+    expect(elements['task-topic'].textContent).toBe('Тема: Next topic');
+    expect(elements['cancel-task-btn'].textContent).toBe('Прервать');
+    expect(
+        elements['task-open-bestiary-btn'].classList.contains('hidden')
+    ).toBe(true);
+    expect(controller.taskResultEducation).toBeNull();
+});
+
+
+test('educational result renders server markup as inert text', () => {
+    const elements = createTaskInteractionElements();
+    const { controller } = createAttackController(elements);
+    const markup = '<script>window.hacked = true</script>';
+    startInteractionTask(controller, createInteractionTask());
+
+    controller.onAttackResolved({
+        success: true,
+        score_change: 5,
+        education: {
+            knowledge_module_id: 'safe_module',
+            knowledge_module_title: markup,
+            explanation: markup,
+        },
+    });
+
+    expect(elements['task-desc'].textContent).toBe(markup);
+    expect(elements['task-topic'].textContent).toBe(`Тема: ${markup}`);
+    expect(globalThis.hacked).toBeUndefined();
+});
 
 
 test.each([
@@ -2326,7 +2750,7 @@ test('successful attack keeps explanation readable in result modal', () => {
     ).toBe(false);
     expect(
         elements['task-title'].textContent
-    ).toMatch(/captured|success|захвачен|успеш/i);
+    ).toMatch(/captured|success|захвачен|успеш|верно/i);
     expect(
         elements['task-desc'].textContent
     ).toContain(
