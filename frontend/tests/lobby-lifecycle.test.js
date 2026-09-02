@@ -92,6 +92,14 @@ test('real LobbyView supports the complete leave and next-preview lifecycle', ()
         audio: {
             resetForNewMatch: vi.fn(),
         },
+        resetForfeitConfirmation: vi.fn(),
+        closeTaskModal: vi.fn(),
+        closeNodeUpgradePanel: vi.fn(),
+        gameFinishedPanel: { classList: { add: vi.fn() } },
+        gameScreen: { classList: { add: vi.fn() } },
+        forfeitGameBtn: { classList: { add: vi.fn() } },
+        bestiaryView: { hide: vi.fn() },
+        model: { resetGame: vi.fn() },
         network: {
             leaveRoom: vi.fn(),
         },

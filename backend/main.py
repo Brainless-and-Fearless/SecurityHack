@@ -29,6 +29,7 @@ from education_logic import (
     build_task_education_context,
     build_task_education_feedback,
 )
+from forfeit_service import forfeit_running_player
 from session_registry import SessionRegistry
 from presence_manager import PresenceManager
 from redis_repository import (
@@ -42,7 +43,7 @@ from game_logic import (
     resolve_attack,
     upgrade_node,
 )
-from models import GameStatus
+from models import GameStatus, RoomStatus
 
 
 from room_id import generate_unique_room_id
@@ -356,12 +357,33 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
 
                 leaving_room_id = current_room_id
+                room = await websocket.app.state.room_repository.get_room(
+                    leaving_room_id
+                )
+                forfeit_result = None
 
                 try:
-                    updated_room = await room_service.leave_room(
-                        leaving_room_id,
-                        player_id,
-                    )
+                    if (
+                        room is not None
+                        and room.status == RoomStatus.RUNNING
+                        and room.game_id is not None
+                    ):
+                        forfeit_result = await forfeit_running_player(
+                            leaving_room_id,
+                            player_id,
+                            room_repository=(
+                                websocket.app.state.room_repository
+                            ),
+                            game_repository=game_repository,
+                            game_loop_manager=game_loop_manager,
+                            task_manager=websocket.app.state.task_manager,
+                        )
+                        updated_room = forfeit_result.room
+                    else:
+                        updated_room = await room_service.leave_room(
+                            leaving_room_id,
+                            player_id,
+                        )
                 except ValueError as exc:
                     await send_error(
                         code=str(exc),
@@ -385,17 +407,43 @@ async def websocket_endpoint(websocket: WebSocket):
                     response.model_dump(mode="json")
                 )
 
-                if updated_room is not None:
-                    await presence_manager.broadcast_room_state(
-                        updated_room
-                    )
-
                 await connection_manager.disconnect(
                     player_id,
                     websocket,
                     notify=False,
                 )
                 current_room_id = None
+
+                if updated_room is not None:
+                    await presence_manager.broadcast_room_state(updated_room)
+
+                if forfeit_result is not None:
+                    await connection_manager.broadcast_to_room(
+                        leaving_room_id,
+                        {
+                            "type": "GAME_STATE",
+                            "game_id": forfeit_result.game_id,
+                            "game": forfeit_result.game.model_dump(mode="json"),
+                        },
+                    )
+
+                    if forfeit_result.finished:
+                        finished = GameFinishedMessage(
+                            type="GAME_FINISHED",
+                            game_id=forfeit_result.game_id,
+                            winner_id=forfeit_result.game.winner_id,
+                            scores={
+                                remaining_player_id: remaining_player.score
+                                for remaining_player_id, remaining_player
+                                in forfeit_result.game.players.items()
+                            },
+                        )
+                        await connection_manager.broadcast_to_room(
+                            leaving_room_id,
+                            finished.model_dump(mode="json"),
+                        )
+                        await game_loop_manager.stop(forfeit_result.game_id)
+
                 continue
 
             # ---------------------------------------------------------

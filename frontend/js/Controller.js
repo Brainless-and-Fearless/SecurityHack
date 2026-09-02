@@ -18,6 +18,18 @@ export class Controller {
         this.connectionStatus = document.getElementById(
             'connection-status'
         );
+        this.forfeitGameBtn = document.getElementById(
+            'forfeit-game-btn'
+        );
+        this.forfeitConfirmPanel = document.getElementById(
+            'forfeit-confirm-panel'
+        );
+        this.forfeitStayBtn = document.getElementById(
+            'forfeit-stay-btn'
+        );
+        this.forfeitConfirmBtn = document.getElementById(
+            'forfeit-confirm-btn'
+        );
         this.openBestiaryBtn = document.getElementById(
             'open-bestiary-btn'
         );
@@ -72,6 +84,7 @@ export class Controller {
         this.isGameFinished = false;
         this.isResumingSession = false;
         this.knowledgeRefreshAfterResume = false;
+        this.forfeitPending = false;
 
         this._prevResources = null;
         this._prevScore = null;
@@ -115,6 +128,19 @@ export class Controller {
         this.openBestiaryBtn?.addEventListener(
             'click',
             () => this.openBestiaryFromEntry()
+        );
+
+        this.forfeitGameBtn?.addEventListener(
+            'click',
+            () => this.showForfeitConfirmation()
+        );
+        this.forfeitStayBtn?.addEventListener(
+            'click',
+            () => this.cancelForfeitConfirmation()
+        );
+        this.forfeitConfirmBtn?.addEventListener(
+            'click',
+            () => this.confirmForfeit()
         );
 
         lv.setEntryMode('create');
@@ -246,6 +272,10 @@ export class Controller {
     }
 
     onNetworkError(message) {
+        if (this.forfeitPending) {
+            this.resetForfeitConfirmation();
+        }
+
         this.bestiaryView?.recoverChallengeSubmission?.();
 
         this.lobbyView.showToast(
@@ -278,13 +308,94 @@ export class Controller {
         this.network.leaveRoom();
     }
 
+    showForfeitConfirmation() {
+        if (this.model?.state?.status !== 'running') {
+            return false;
+        }
+
+        this.forfeitConfirmPanel?.classList.remove('hidden');
+        return true;
+    }
+
+    cancelForfeitConfirmation() {
+        if (this.forfeitPending) {
+            return false;
+        }
+
+        this.forfeitConfirmPanel?.classList.add('hidden');
+        return true;
+    }
+
+    confirmForfeit() {
+        if (
+            this.forfeitPending
+            || !this.isNetworkActionAvailable()
+        ) {
+            return false;
+        }
+
+        this.forfeitPending = true;
+        if (this.forfeitConfirmBtn) {
+            this.forfeitConfirmBtn.disabled = true;
+        }
+        if (this.forfeitStayBtn) {
+            this.forfeitStayBtn.disabled = true;
+        }
+        this.network.leaveRoom();
+        return true;
+    }
+
+    resetForfeitConfirmation() {
+        this.forfeitPending = false;
+        this.forfeitConfirmPanel?.classList.add('hidden');
+        if (this.forfeitConfirmBtn) {
+            this.forfeitConfirmBtn.disabled = false;
+        }
+        if (this.forfeitStayBtn) {
+            this.forfeitStayBtn.disabled = false;
+        }
+    }
+
     onRoomLeft() {
+        const wasInRunningGame = (
+            this.model?.state?.status === 'running'
+        );
+
         this.room = null;
+        this.resetForfeitConfirmation();
+        this.closeTaskModal();
+        this.closeNodeUpgradePanel();
+        this.gameFinishedPanel?.classList.add('hidden');
+        this.gameScreen?.classList.add('hidden');
+        this.forfeitGameBtn?.classList.add('hidden');
         this.bestiaryView?.hide?.();
+        this.model?.resetGame?.();
+        this.isGameFinished = false;
+        this.isResumingSession = false;
+        this.knowledgeRefreshAfterResume = false;
+        this._prevResources = null;
+        this._prevScore = null;
+        this.audio.resetForNewMatch();
+
+        if (this.playerName) {
+            this.playerName.textContent = 'Игрок';
+        }
+        if (this.playerScore) {
+            this.playerScore.textContent = 'Очки: 0';
+        }
+        if (this.playerResources) {
+            this.playerResources.textContent = '0';
+        }
+        if (this.gameTimer) {
+            this.gameTimer.textContent = '0:00';
+        }
         this.lobbyView.clearMapPreview();
 
         this.lobbyView.showEntryScreen();
         this.lobbyView.resetEntryForm();
+        if (wasInRunningGame) {
+            this.lobbyView.startAmbientLoop?.();
+        }
     }
 
     handleStartGame() {
@@ -305,6 +416,13 @@ export class Controller {
             gameState.gameId,
             gameState.game
         );
+
+        if (this.model.state.status === 'running') {
+            this.forfeitGameBtn?.classList.remove('hidden');
+        } else {
+            this.forfeitGameBtn?.classList.add('hidden');
+            this.resetForfeitConfirmation();
+        }
 
         this.updateHud();
         this.audio.updateMatchTimer(
@@ -371,6 +489,8 @@ export class Controller {
         this.gameScreen.classList.remove(
             'hidden'
         );
+        this.forfeitGameBtn?.classList.remove('hidden');
+        this.resetForfeitConfirmation();
         this.bestiaryView?.showForGame?.();
 
         this.playerName.textContent =
@@ -1026,6 +1146,8 @@ export class Controller {
     onGameFinished(message) {
         this.isGameFinished = true;
 
+        this.forfeitGameBtn?.classList.add('hidden');
+        this.resetForfeitConfirmation();
         this.closeTaskModal();
         this.closeNodeUpgradePanel();
 

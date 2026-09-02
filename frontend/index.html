@@ -88,9 +88,18 @@
                         <span id="game-timer" class="hud-value font-code">10:00</span>
                     </span>
                 </div>
+                <button type="button" id="forfeit-game-btn" class="btn-danger-ghost forfeit-game-btn hidden">Выйти из игры</button>
             </div>
         </header>
         <canvas id="game-canvas"></canvas>
+        <div id="forfeit-confirm-panel" class="glass-panel hidden" role="dialog" aria-modal="true" aria-labelledby="forfeit-confirm-title">
+            <h2 id="forfeit-confirm-title" class="font-code">Выйти из игры?</h2>
+            <p>Вы покинете текущий матч.</p>
+            <div class="forfeit-confirm-actions">
+                <button type="button" id="forfeit-stay-btn" class="btn-danger-ghost">Остаться</button>
+                <button type="button" id="forfeit-confirm-btn" class="btn-danger">Выйти</button>
+            </div>
+        </div>
         <div id="task-modal" class="glass-panel hidden">
             <h2 id="task-title" class="font-code">Взлом узла...</h2>
             <p id="task-topic" class="task-topic hidden"></p>

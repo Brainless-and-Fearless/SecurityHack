@@ -2382,7 +2382,7 @@ def test_host_lobby_leave_transfers_host_to_first_remaining_player():
                 assert room.host_id == joined["player_id"]
 
 
-def test_running_game_rejects_leave_without_mutating_session_or_membership():
+def test_three_player_running_leave_forfeits_and_match_continues():
     with TestClient(app) as client:
         game_loop_manager = app.state.game_loop_manager
         original_start = game_loop_manager.start
@@ -2390,36 +2390,170 @@ def test_running_game_rejects_leave_without_mutating_session_or_membership():
 
         try:
             with client.websocket_connect("/ws") as host_ws:
-                with client.websocket_connect("/ws") as player_ws:
-                    started = start_two_player_websocket_game(
-                        host_ws,
-                        player_ws,
-                    )
-                    token = started["host_session_token"]
+                with client.websocket_connect("/ws") as bob_ws:
+                    with client.websocket_connect("/ws") as charlie_ws:
+                        host_ws.send_json({
+                            "type": "CREATE_ROOM",
+                            "request_id": "req_forfeit_create",
+                            "nickname": "Alice",
+                        })
+                        host_ws.receive_json()
+                        created = host_ws.receive_json()
 
-                    host_ws.send_json({
+                        bob_ws.send_json({
+                            "type": "JOIN_ROOM",
+                            "request_id": "req_forfeit_join_bob",
+                            "room_id": created["room_id"],
+                            "nickname": "Bob",
+                        })
+                        bob_ws.receive_json()
+                        bob_joined = bob_ws.receive_json()
+                        host_ws.receive_json()
+
+                        charlie_ws.send_json({
+                            "type": "JOIN_ROOM",
+                            "request_id": "req_forfeit_join_charlie",
+                            "room_id": created["room_id"],
+                            "nickname": "Charlie",
+                        })
+                        charlie_ws.receive_json()
+                        charlie_joined = charlie_ws.receive_json()
+                        host_ws.receive_json()
+                        bob_ws.receive_json()
+
+                        host_ws.send_json({
+                            "type": "START_GAME",
+                            "request_id": "req_forfeit_start",
+                        })
+                        host_ws.receive_json()
+                        host_game_state = host_ws.receive_json()
+                        bob_ws.receive_json()
+                        bob_ws.receive_json()
+                        charlie_ws.receive_json()
+                        charlie_ws.receive_json()
+
+                        host_ws.send_json({
+                            "type": "LEAVE_ROOM",
+                            "request_id": "req_running_forfeit",
+                        })
+
+                        assert host_ws.receive_json()["type"] == "ROOM_LEFT"
+                        bob_room_state = bob_ws.receive_json()
+                        bob_game_state = bob_ws.receive_json()
+                        charlie_room_state = charlie_ws.receive_json()
+                        charlie_game_state = charlie_ws.receive_json()
+
+                        remaining_ids = {
+                            bob_joined["player_id"],
+                            charlie_joined["player_id"],
+                        }
+                        assert bob_room_state["type"] == "ROOM_STATE"
+                        assert charlie_room_state["type"] == "ROOM_STATE"
+                        assert {
+                            player["id"]
+                            for player in bob_room_state["players"]
+                        } == remaining_ids
+                        assert bob_room_state["you"]["isHost"] is True
+                        assert bob_game_state["type"] == "GAME_STATE"
+                        assert charlie_game_state["type"] == "GAME_STATE"
+                        assert bob_game_state["game"]["status"] == "running"
+                        assert set(
+                            bob_game_state["game"]["players"]
+                        ) == remaining_ids
+
+                        room = client.portal.call(
+                            app.state.room_repository.get_room,
+                            created["room_id"],
+                        )
+                        game = client.portal.call(
+                            app.state.game_repository.get_game,
+                            host_game_state["game_id"],
+                        )
+                        assert set(room.player_ids) == remaining_ids
+                        assert room.host_id == bob_joined["player_id"]
+                        assert game.status == GameStatus.RUNNING
+                        assert set(game.players) == remaining_ids
+                        assert app.state.session_registry.get(
+                            created["session_token"]
+                        ) is None
+        finally:
+            game_loop_manager.start = original_start
+
+
+def test_running_forfeit_cleans_attack_finishes_and_invalidates_resume():
+    with TestClient(app) as client:
+        original_task_manager = app.state.task_manager
+        original_loop_task_manager = app.state.game_loop_manager.task_manager
+        test_task_manager = create_test_websocket_task_manager()
+        app.state.task_manager = test_task_manager
+        app.state.game_loop_manager.task_manager = test_task_manager
+
+        try:
+            with client.websocket_connect("/ws") as alice_ws:
+                with client.websocket_connect("/ws") as bob_ws:
+                    started = start_two_player_websocket_attack(
+                        alice_ws,
+                        bob_ws,
+                    )
+                    task_id = started["task"]["id"]
+
+                    alice_ws.send_json({
                         "type": "LEAVE_ROOM",
-                        "request_id": "req_running_leave",
+                        "request_id": "req_forfeit_alice",
                     })
-                    error = host_ws.receive_json()
 
-                    assert error["type"] == "ERROR"
-                    assert error["code"] == (
-                        "LEAVE_NOT_ALLOWED_AFTER_GAME_START"
+                    assert alice_ws.receive_json() == {
+                        "type": "ROOM_LEFT",
+                        "request_id": "req_forfeit_alice",
+                        "room_id": started["room_id"],
+                    }
+                    room_state = bob_ws.receive_json()
+                    game_state = bob_ws.receive_json()
+                    finished = bob_ws.receive_json()
+
+                    assert room_state["type"] == "ROOM_STATE"
+                    assert [
+                        player["id"] for player in room_state["players"]
+                    ] == [started["player_id"]]
+                    assert room_state["you"]["isHost"] is True
+                    assert game_state["type"] == "GAME_STATE"
+                    assert game_state["game"]["status"] == "finished"
+                    assert started["host_player_id"] not in (
+                        game_state["game"]["players"]
                     )
+                    assert task_id not in game_state["game"]["tasks"]
+                    assert all(
+                        node["owner_id"] != started["host_player_id"]
+                        and node["active_attack_player_id"]
+                        != started["host_player_id"]
+                        for node in game_state["game"]["nodes"].values()
+                    )
+                    assert task_id not in test_task_manager.tasks
+                    assert finished["type"] == "GAME_FINISHED"
+                    assert finished["winner_id"] == started["player_id"]
+
                     room = client.portal.call(
                         app.state.room_repository.get_room,
                         started["room_id"],
                     )
-                    game = client.portal.call(
-                        app.state.game_repository.get_game,
-                        started["game_id"],
-                    )
-                    assert started["host_player_id"] in room.player_ids
-                    assert started["host_player_id"] in game.players
-                    assert app.state.session_registry.get(token) is not None
+                    assert room.player_ids == [started["player_id"]]
+                    assert room.host_id == started["player_id"]
+                    assert app.state.session_registry.get(
+                        started["host_session_token"]
+                    ) is None
+
+                    with client.websocket_connect("/ws") as resumed_ws:
+                        resumed_ws.send_json({
+                            "type": "RESUME_SESSION",
+                            "request_id": "req_resume_forfeit",
+                            "session_token": started["host_session_token"],
+                        })
+                        invalid = resumed_ws.receive_json()
+                        assert invalid["type"] == "ERROR"
+                        assert invalid["code"] == "INVALID_SESSION"
         finally:
-            game_loop_manager.start = original_start
+            app.state.task_manager = original_task_manager
+            app.state.game_loop_manager.task_manager = original_loop_task_manager
 
 
 def test_knowledge_unlock_is_isolated_between_players_and_payloads_are_safe():
