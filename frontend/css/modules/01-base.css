@@ -1,0 +1,131 @@
+/* Объявление цветовой палитры и переменных */
+:root {
+    --bg-color: #0F172A;
+    --primary-color: #4F46E5;
+    --success-color: #10B981;
+    --danger-color: #E11D48;
+    --text-color: #F8FAFC;
+
+
+    --level1-color: #FBBF24;
+    --level2-color: #F97316;
+    --level3-color: #EF4444;
+
+
+    --rank-kiddie: #94A3B8;
+    --rank-elite: #818CF8;
+
+
+    /* Новое: производные поверхности для лобби — не новые цвета, а прозрачности базовых токенов */
+    --surface-1: rgba(255,255,255,0.05);
+    --surface-2: rgba(255,255,255,0.08);
+    --surface-line: rgba(255,255,255,0.10);
+    --surface-muted: rgba(248,250,252,0.45);
+    --radius-lg: 16px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+}
+
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Inter', sans-serif;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+}
+
+
+.font-code {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+
+*:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+
+
+/* Glassmorphism */
+.glass-panel {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+
+.hidden {
+    display: none !important;
+}
+
+
+input {
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-color);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+    transition: border-color .2s ease;
+}
+input::placeholder { color: var(--surface-muted); }
+input:focus { border-color: var(--primary-color); }
+input.input-error { border-color: var(--danger-color); }
+
+
+button {
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    color: white;
+}
+button:active { transform: scale(0.98); }
+button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: none; }
+
+
+.btn-primary { background-color: var(--primary-color); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.2); }
+
+
+.btn-success { background-color: var(--success-color); }
+.btn-success:hover:not(:disabled) { filter: brightness(1.1); }
+
+
+.btn-danger { background-color: var(--danger-color); }
+
+
+.rank-elite {
+    color: var(--rank-elite);
+    text-shadow: 0 0 8px var(--rank-elite);
+    font-weight: bold;
+}

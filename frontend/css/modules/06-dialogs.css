@@ -1,0 +1,94 @@
+/* Модальное окно задачи */
+#task-modal,
+#node-upgrade-panel,
+#game-finished-panel,
+#forfeit-confirm-panel {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 300px;
+}
+
+
+.forfeit-game-btn {
+    white-space: nowrap;
+}
+
+
+.forfeit-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+
+#game-finished-details {
+    white-space: pre-line;
+}
+
+
+.task-topic {
+    color: var(--surface-muted);
+    font-size: 12px;
+}
+
+
+#task-desc {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+}
+
+
+#task-modal.is-success-result #task-title {
+    color: var(--success-color);
+}
+
+
+#task-modal.is-failure-result #task-title {
+    color: var(--danger-color);
+}
+
+
+.task-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+
+.task-option-btn {
+    width: 100%;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
+    background: var(--surface-1);
+    color: var(--text-color);
+    border: 1px solid var(--surface-line);
+}
+
+
+.task-option-btn:hover:not(:disabled),
+.task-option-btn:focus-visible:not(:disabled) {
+    border-color: var(--primary-color);
+    background: var(--surface-2);
+    color: var(--text-color);
+}
+
+
+.task-option-btn:active:not(:disabled) {
+    background: var(--surface-2);
+}
+
+
+.task-option-btn:disabled {
+    background: var(--surface-1);
+    color: var(--surface-muted);
+}
