@@ -1117,7 +1117,7 @@ test('clicking an owned node opens upgrade action without attacking', () => {
     ).toBe(false);
     expect(elements['node-upgrade-title'].textContent).toContain('K1');
     expect(elements['node-upgrade-details'].textContent).toContain('K2');
-    expect(elements['node-upgrade-details'].textContent).toContain('10');
+    expect(elements['node-upgrade-details'].textContent).toBe('K1 → K2. Стоимость: 15');
 });
 
 
@@ -1224,7 +1224,7 @@ test('local resources do not gate an owned K1 or K2 upgrade request', () => {
         clientY: 100,
     });
 
-    expect(elements['node-upgrade-details'].textContent).toContain('20');
+    expect(elements['node-upgrade-details'].textContent).toBe('K2 → K3. Стоимость: 50');
     expect(elements['upgrade-node-btn'].disabled).toBe(false);
 
     const clickHandler = elements['upgrade-node-btn']
@@ -1325,7 +1325,7 @@ test('authoritative GAME_STATE refreshes upgrade level and resources', () => {
     expect(elements['player-resources'].textContent).toBe('10');
     expect(elements['node-upgrade-title'].textContent).toContain('K2');
     expect(elements['node-upgrade-details'].textContent).toContain('K3');
-    expect(elements['node-upgrade-details'].textContent).toContain('20');
+    expect(elements['node-upgrade-details'].textContent).toBe('K2 → K3. Стоимость: 50');
     expect(controller.selectedUpgradeNodeId).toBe('node_1');
     expect(
         elements['node-upgrade-panel'].classList.contains('hidden')

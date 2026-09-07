@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
     },
 
     bestiaryView: {},
+    scoreboardView: {},
+    capturedScoreboardView: { value: null },
     capturedBestiaryView: {
         value: null,
     },
@@ -28,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     onConnectionStateChange: vi.fn(),
     onRoomLeft: vi.fn(),
     onKnowledgeCatalog: vi.fn(),
+    onKnowledgeSearchResults: vi.fn(),
     onKnowledgeOpened: vi.fn(),
     onKnowledgeLocked: vi.fn(),
     onKnowledgeChallengeFailed: vi.fn(),
@@ -60,6 +63,12 @@ vi.mock('../js/BestiaryView.js', () => ({
     },
 }));
 
+vi.mock('../js/ScoreboardView.js', () => ({
+    ScoreboardView: class {
+        constructor() { return mocks.scoreboardView; }
+    },
+}));
+
 vi.mock('../js/Network.js', () => ({
     Network: class {
         constructor(handlers) {
@@ -78,10 +87,12 @@ vi.mock('../js/Controller.js', () => ({
             lobbyView,
             lobbyTransport,
             bestiaryView,
+            scoreboardView,
         ) {
             mocks.capturedLobbyTransport.value =
                 lobbyTransport;
             mocks.capturedBestiaryView.value = bestiaryView;
+            mocks.capturedScoreboardView.value = scoreboardView;
         }
 
         onAttackCancelled(message) {
@@ -106,6 +117,10 @@ vi.mock('../js/Controller.js', () => ({
 
         onKnowledgeCatalog(message) {
             mocks.onKnowledgeCatalog(message);
+        }
+
+        onKnowledgeSearchResults(message) {
+            mocks.onKnowledgeSearchResults(message);
         }
 
         onKnowledgeOpened(message) {
@@ -145,6 +160,7 @@ describe('app bootstrap', () => {
             mocks.capturedLobbyTransport.value
         ).toBe(mocks.network);
         expect(mocks.capturedBestiaryView.value).toBe(mocks.bestiaryView);
+        expect(mocks.capturedScoreboardView.value).toBe(mocks.scoreboardView);
         expect(
             mocks.network.resumeStoredSession
         ).toHaveBeenCalledTimes(1);
@@ -154,6 +170,7 @@ describe('app bootstrap', () => {
 
     test.each([
         ['KNOWLEDGE_CATALOG', 'onKnowledgeCatalog', 'onKnowledgeCatalog'],
+        ['KNOWLEDGE_SEARCH_RESULTS', 'onKnowledgeSearchResults', 'onKnowledgeSearchResults'],
         ['KNOWLEDGE_OPENED', 'onKnowledgeOpened', 'onKnowledgeOpened'],
         ['KNOWLEDGE_LOCKED', 'onKnowledgeLocked', 'onKnowledgeLocked'],
         [

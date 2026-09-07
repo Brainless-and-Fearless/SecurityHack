@@ -38,6 +38,11 @@
         </div>
         <button type="button" id="entry-submit" class="btn-primary">Создать комнату</button>
         <button type="button" id="open-bestiary-btn" class="bestiary-close-btn">Бестиарий</button>
+        <div class="volume-control volume-control-entry">
+            <label for="entry-master-volume">Громкость</label>
+            <input id="entry-master-volume" type="range" min="0" max="100" step="1" value="100">
+            <output id="entry-master-volume-value" for="entry-master-volume">100%</output>
+        </div>
         <div class="field-error" id="entry-network-error"></div>
     </div>
 
@@ -94,9 +99,27 @@
                     </span>
                 </div>
                 <button type="button" id="forfeit-game-btn" class="btn-danger-ghost forfeit-game-btn hidden">Выйти из игры</button>
+                <div class="volume-control volume-control-game">
+                    <label for="game-master-volume">Громкость</label>
+                    <input id="game-master-volume" type="range" min="0" max="100" step="1" value="100">
+                    <output id="game-master-volume-value" for="game-master-volume">100%</output>
+                </div>
             </div>
         </header>
         <canvas id="game-canvas"></canvas>
+        <aside id="scoreboard-panel" class="glass-panel scoreboard-panel hidden" aria-labelledby="scoreboard-heading">
+            <div class="scoreboard-header">
+                <h2 id="scoreboard-heading" class="font-code">Счёт</h2>
+                <button id="scoreboard-close-btn" type="button" class="btn-danger-ghost" aria-label="Скрыть таблицу счёта">Скрыть</button>
+            </div>
+            <div class="scoreboard-table-scroll">
+                <table class="scoreboard-table">
+                    <thead><tr><th scope="col">Ник</th><th scope="col">Очки</th><th scope="col">Узлы</th></tr></thead>
+                    <tbody id="scoreboard-body"></tbody>
+                </table>
+            </div>
+        </aside>
+        <button id="scoreboard-open-btn" type="button" class="btn-danger-ghost scoreboard-open-btn hidden" aria-controls="scoreboard-panel" aria-expanded="false">Счёт</button>
         <div id="forfeit-confirm-panel" class="glass-panel hidden" role="dialog" aria-modal="true" aria-labelledby="forfeit-confirm-title">
             <h2 id="forfeit-confirm-title" class="font-code">Выйти из игры?</h2>
             <p>Вы покинете текущий матч.</p>
@@ -129,6 +152,7 @@
     <aside id="bestiary-panel" class="glass-panel bestiary-panel hidden" aria-label="Зашифрованный бестиарий">
         <button id="bestiary-close-btn" type="button" class="bestiary-close-btn hidden">Вернуться</button>
         <h2 class="bestiary-heading font-code">Бестиарий</h2>
+        <input id="bestiary-search" class="bestiary-search" type="search" placeholder="Поиск по темам..." aria-label="Поиск по темам" autocomplete="off">
         <div id="bestiary-catalog" class="bestiary-catalog"></div>
         <section id="bestiary-detail" class="bestiary-detail hidden">
             <button id="bestiary-back-btn" type="button" class="btn-danger-ghost bestiary-back-btn">К каталогу</button>

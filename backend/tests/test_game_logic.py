@@ -12,8 +12,6 @@ from models import (
     TaskTemplate,
 )
 from game_logic import (
-    K1_TO_K2_COST,
-    K2_TO_K3_COST,
     MAX_RESOURCES,
     RESOURCE_INCOME_PER_NODE,
     create_game,
@@ -431,7 +429,7 @@ def test_spawn_node_can_still_be_upgraded_by_its_owner():
     )
 
     assert new_level == DefenceLevel.K3
-    assert alice.resources == 70.0
+    assert alice.resources == 35.0
     assert game.nodes[alice.spawn_node_id].owner_id == alice.id
 
 
@@ -769,7 +767,7 @@ def test_player_can_upgrade_node_from_k1_to_k2():
 
     player = game.players["player_1"]
 
-    player.resources = 100.0
+    player.resources = 15.0
     starting_resources = player.resources
 
     node_id = player.owned_node_ids[0]
@@ -784,7 +782,7 @@ def test_player_can_upgrade_node_from_k1_to_k2():
     assert new_level == DefenceLevel.K2
     assert game.nodes[node_id].defence_level == DefenceLevel.K2
 
-    assert player.resources == starting_resources - K1_TO_K2_COST
+    assert player.resources == starting_resources - 15.0 == 0.0
     assert game.nodes[node_id].owner_id == original_owner_id
 
 
@@ -792,7 +790,7 @@ def test_player_can_upgrade_node_from_k2_to_k3():
     game = prepare_two_player_game()
 
     player = game.players["player_1"]
-    player.resources = 100.0
+    player.resources = 50.0
 
     node_id = player.owned_node_ids[0]
 
@@ -807,7 +805,7 @@ def test_player_can_upgrade_node_from_k2_to_k3():
 
     assert new_level == DefenceLevel.K3
     assert game.nodes[node_id].defence_level == DefenceLevel.K3
-    assert player.resources == starting_resources - K2_TO_K3_COST
+    assert player.resources == starting_resources - 50.0 == 0.0
 
 
 def test_player_cannot_upgrade_k3():
@@ -845,13 +843,19 @@ def test_player_cannot_upgrade_k3():
     assert player.resources == resources_before_rejected_upgrade
 
 
-def test_player_cannot_upgrade_node_without_resources():
+@pytest.mark.parametrize(
+    ("level", "resources"),
+    [(DefenceLevel.K1, 0), (DefenceLevel.K1, 14.5),
+     (DefenceLevel.K2, 0), (DefenceLevel.K2, 49.5)],
+)
+def test_player_cannot_upgrade_node_without_resources(level, resources):
     game = prepare_two_player_game()
 
     player = game.players["player_1"]
     node_id = player.owned_node_ids[0]
 
-    player.resources = 0
+    game.nodes[node_id].defence_level = level
+    player.resources = resources
     game_before_upgrade = game.model_copy(deep=True)
 
     with pytest.raises(

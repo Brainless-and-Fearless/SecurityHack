@@ -347,6 +347,17 @@ test('openKnowledge sends OPEN_KNOWLEDGE request', () => {
 });
 
 
+test('searchKnowledge sends only query and returns the request id for response correlation', () => {
+    const network = new Network({}, 'ws://localhost/ws');
+    network.ws = { readyState: WebSocket.OPEN, send: vi.fn() };
+    const requestId = network.searchKnowledge('base64');
+    expect(JSON.parse(network.ws.send.mock.calls[0][0])).toEqual({
+        type: 'SEARCH_KNOWLEDGE', request_id: requestId, query: 'base64',
+    });
+    expect(requestId).toEqual(expect.any(String));
+});
+
+
 test('answerKnowledgeChallenge sends visible textual answer', () => {
     const network = new Network({}, 'ws://localhost/ws');
     network.ws = {
@@ -372,6 +383,7 @@ test('answerKnowledgeChallenge sends visible textual answer', () => {
 
 test.each([
     ['KNOWLEDGE_CATALOG', 'onKnowledgeCatalog'],
+    ['KNOWLEDGE_SEARCH_RESULTS', 'onKnowledgeSearchResults'],
     ['KNOWLEDGE_OPENED', 'onKnowledgeOpened'],
     ['KNOWLEDGE_LOCKED', 'onKnowledgeLocked'],
     ['KNOWLEDGE_CHALLENGE_FAILED', 'onKnowledgeChallengeFailed'],

@@ -19,6 +19,7 @@ from knowledge_logic import (
     build_locked_knowledge_module,
     build_opened_knowledge_module,
     get_knowledge_module,
+    search_knowledge_modules,
     get_running_knowledge_player,
     is_challenge_answer_correct,
     is_knowledge_module_locked,
@@ -64,6 +65,8 @@ from network_models import (
     CancelAttackMessage,
     UpgradeNodeMessage,
     ListKnowledgeMessage,
+    SearchKnowledgeMessage,
+    KnowledgeSearchResultsMessage,
     OpenKnowledgeMessage,
     AnswerKnowledgeChallengeMessage,
     AttackStartedMessage,
@@ -668,10 +671,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             # ---------------------------------------------------------
-            # LIST_KNOWLEDGE
+            # LIST_KNOWLEDGE / SEARCH_KNOWLEDGE: same safe metadata and locks
             # ---------------------------------------------------------
-            if message_type == "LIST_KNOWLEDGE":
-                list_message = ListKnowledgeMessage.model_validate(message)
+            if message_type in {"LIST_KNOWLEDGE", "SEARCH_KNOWLEDGE"}:
+                is_search = message_type == "SEARCH_KNOWLEDGE"
+                list_message = (
+                    SearchKnowledgeMessage.model_validate(message)
+                    if is_search else ListKnowledgeMessage.model_validate(message)
+                )
+                selected_modules = (
+                    search_knowledge_modules(list_message.query)
+                    if is_search else KNOWLEDGE_MODULES
+                )
 
                 try:
                     _, game = await load_knowledge_game()
@@ -686,7 +697,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 ),
                             )
                         )
-                        for module in KNOWLEDGE_MODULES
+                        for module in selected_modules
                     ]
                 except ValueError as exc:
                     await send_error(
@@ -696,11 +707,19 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     continue
 
-                response = KnowledgeCatalogMessage(
-                    type="KNOWLEDGE_CATALOG",
-                    request_id=list_message.request_id,
-                    modules=modules,
-                )
+                if is_search:
+                    response = KnowledgeSearchResultsMessage(
+                        type="KNOWLEDGE_SEARCH_RESULTS",
+                        request_id=list_message.request_id,
+                        query=list_message.query.strip(),
+                        modules=modules,
+                    )
+                else:
+                    response = KnowledgeCatalogMessage(
+                        type="KNOWLEDGE_CATALOG",
+                        request_id=list_message.request_id,
+                        modules=modules,
+                    )
                 await websocket.send_json(response.model_dump(mode="json"))
                 continue
 

@@ -4,6 +4,7 @@ import hashlib
 import pytest
 
 from knowledge_logic import (
+    search_knowledge_modules,
     is_challenge_answer_correct,
     normalize_knowledge_answer,
     select_access_challenge,
@@ -16,6 +17,34 @@ from knowledge_pool import (
 )
 from models import AccessChallenge, GameState, KnowledgeModule, Player
 from task_pool import TASK_POOL
+
+
+def test_knowledge_search_matches_frozen_fields_in_module_order():
+    assert "data_encoding" in [m.id for m in search_knowledge_modules(" base64 ")]
+    assert search_knowledge_modules("ROT13") == search_knowledge_modules("rot13")
+    assert "classical_ciphers" in [m.id for m in search_knowledge_modules("rot13")]
+    for query in ["КОДИРОВАНИЕ", "transposition", "перебрать", "ase6"]:
+        expected = [
+            module for module in KNOWLEDGE_MODULES
+            if any(query.casefold() in field.casefold() for field in
+                   [module.title, *module.categories, module.content])
+        ]
+        results = search_knowledge_modules(query)
+        assert results == expected
+        assert results
+        assert len({module.id for module in results}) == len(results)
+    assert search_knowledge_modules(" \t\n") == []
+
+
+def test_knowledge_search_uses_casefold_but_not_gate_data(monkeypatch):
+    import knowledge_logic
+    module = KNOWLEDGE_MODULES[0].model_copy(update={
+        "title": "Straße", "categories": [], "content": "synthetic body",
+    })
+    monkeypatch.setattr(knowledge_logic, "KNOWLEDGE_MODULES", [module])
+    assert search_knowledge_modules(" STRASSE ") == [module]
+    assert search_knowledge_modules(module.gate_ids[0]) == []
+    assert search_knowledge_modules(ACCESS_CHALLENGES_BY_ID[module.gate_ids[0]].answer) == []
 
 
 EXPECTED_GATE_IDS = {

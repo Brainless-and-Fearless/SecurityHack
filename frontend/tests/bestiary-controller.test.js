@@ -90,6 +90,7 @@ function createController() {
         connectionState: 'connected',
         you: { id: 'player_1' },
         listKnowledge: vi.fn(),
+        searchKnowledge: vi.fn(() => 'search-request'),
         openKnowledge: vi.fn(),
         answerKnowledgeChallenge: vi.fn(),
     };
@@ -98,6 +99,7 @@ function createController() {
             this.handlers = handlers;
         }),
         renderCatalog: vi.fn(),
+        renderSearchResults: vi.fn(),
         renderLocked: vi.fn(),
         showChallengeFailure: vi.fn(),
         renderUnlocked: vi.fn(),
@@ -135,6 +137,21 @@ describe('Controller Bestiary integration', () => {
 
         expect(context.bestiaryView.showForGame).toHaveBeenCalledTimes(1);
         expect(context.network.listKnowledge).toHaveBeenCalledTimes(1);
+    });
+
+    test('search delegates to existing Network and routes the response to the shared view', () => {
+        expect(context.bestiaryView.handlers.onSearchRequested('base64')).toBe('search-request');
+        expect(context.network.searchKnowledge).toHaveBeenCalledExactlyOnceWith('base64');
+        const response = { request_id: 'search-request', query: 'base64', modules: [] };
+        context.controller.onKnowledgeSearchResults(response);
+        expect(context.bestiaryView.renderSearchResults).toHaveBeenCalledWith(response);
+        expect(context.network.listKnowledge).not.toHaveBeenCalled();
+    });
+
+    test.each(['disconnected', 'reconnecting'])('search obeys existing %s availability policy', (state) => {
+        context.network.connectionState = state;
+        expect(context.bestiaryView.handlers.onSearchRequested('base64')).toBe(false);
+        expect(context.network.searchKnowledge).not.toHaveBeenCalled();
     });
 
     test('entry menu opens the shared Bestiary and requests authoritative catalog', () => {

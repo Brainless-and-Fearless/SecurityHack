@@ -1384,7 +1384,7 @@ def test_upgrade_node_acknowledges_and_broadcasts_authoritative_state():
                         "node_id": node_id,
                         "from_level": "K1",
                         "to_level": "K2",
-                        "cost": 10.0,
+                        "cost": 15.0,
                     }
 
                     host_game_state = host_ws.receive_json()
@@ -1403,7 +1403,7 @@ def test_upgrade_node_acknowledges_and_broadcasts_authoritative_state():
                     ] == "K2"
                     assert updated_game["players"][host_player_id][
                         "resources"
-                    ] == starting_resources - 10.0
+                    ] == starting_resources - 15.0
 
                     game_loop_manager.lock.assert_any_call(
                         started["game_id"]
@@ -1411,6 +1411,49 @@ def test_upgrade_node_acknowledges_and_broadcasts_authoritative_state():
         finally:
             game_loop_manager.start = original_start
             game_loop_manager.lock = original_lock
+
+
+def test_search_knowledge_free_study_and_empty_query_return_only_metadata():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            for query in [" base64 ", "ROT13", "rot13", " \t"]:
+                websocket.send_json({
+                    "type": "SEARCH_KNOWLEDGE", "request_id": "search_free", "query": query,
+                })
+                response = websocket.receive_json()
+                assert set(response) == {"type", "request_id", "query", "modules"}
+                assert response["type"] == "KNOWLEDGE_SEARCH_RESULTS"
+                assert response["request_id"] == "search_free"
+                assert response["query"] == query.strip()
+                expected = [m for m in KNOWLEDGE_MODULES if query.strip() and any(
+                    query.strip().casefold() in field.casefold()
+                    for field in [m.title, *m.categories, m.content]
+                )]
+                assert response["modules"] == [
+                    {"id": m.id, "title": m.title, "categories": m.categories, "is_locked": False}
+                    for m in expected
+                ]
+
+
+def test_search_knowledge_running_uses_per_player_locks_without_content_leaks():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as host_ws:
+            with client.websocket_connect("/ws") as player_ws:
+                game_data = start_two_player_websocket_game(host_ws, player_ws)
+                for unlocked in [False, True]:
+                    if unlocked:
+                        client.portal.call(set_knowledge_test_state, game_data["game_id"],
+                                           game_data["host_player_id"], None, "data_encoding")
+                    for ws, is_locked in [(host_ws, not unlocked), (player_ws, True)]:
+                        ws.send_json({"type": "SEARCH_KNOWLEDGE", "request_id": "search_locked", "query": "base64"})
+                        response = ws.receive_json()
+                        assert response["type"] == "KNOWLEDGE_SEARCH_RESULTS"
+                        assert set(response) == {"type", "request_id", "query", "modules"}
+                        found = {m["id"]: m for m in response["modules"]}
+                        assert found["data_encoding"]["is_locked"] is is_locked
+                        assert all(set(m) == {"id", "title", "categories", "is_locked"}
+                                   for m in response["modules"])
+                        assert len(found) == len(response["modules"])
 
 
 def test_list_knowledge_is_free_without_running_game_and_leaks_no_content():
@@ -1744,7 +1787,7 @@ def test_player_cannot_upgrade_enemy_node_over_websocket():
                     )
                     assert host_game_state["game"]["players"][
                         host_player_id
-                    ]["resources"] == 10.0
+                    ]["resources"] == 5.0
         finally:
             game_loop_manager.start = original_start
 
@@ -1783,7 +1826,7 @@ def test_upgrade_node_rejects_insufficient_resources_without_broadcast():
                     ] == "K2"
                     assert host_game_state["game"]["players"][
                         host_player_id
-                    ]["resources"] == 10.0
+                    ]["resources"] == 5.0
 
                     for request_id in (
                         "req_upgrade_without_resources",

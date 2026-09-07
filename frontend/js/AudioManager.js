@@ -1,4 +1,5 @@
 const AUDIO_BASE_PATH = '../audio/';
+const MASTER_VOLUME_KEY = 'securityhack.masterVolume';
 
 const AUDIO_FILES = {
     music: 'Midnight_Protocol.mp3',
@@ -30,6 +31,7 @@ const EFFECT_COOLDOWNS_MS = {
 
 export class AudioManager {
     constructor() {
+        this.masterVolume = this._readMasterVolume();
         this.music = this._createAudio('music', true);
         this.ticking = this._createAudio('ticking', true);
         this.effects = new Map();
@@ -59,8 +61,41 @@ export class AudioManager {
         const audio = new Audio(`${AUDIO_BASE_PATH}${AUDIO_FILES[name]}`);
         audio.preload = 'auto';
         audio.loop = loop;
-        audio.volume = AUDIO_VOLUMES[name];
+        this._applyVolume(audio, name);
         return audio;
+    }
+
+    _readMasterVolume() {
+        try {
+            const stored = globalThis.localStorage?.getItem(MASTER_VOLUME_KEY);
+            if (stored != null && stored.trim() !== '' && Number.isFinite(Number(stored))) {
+                return Math.max(0, Math.min(100, Number(stored)));
+            }
+        } catch {
+            // Storage may be unavailable; the session setting still works.
+        }
+        return 100;
+    }
+
+    _applyVolume(audio, name) {
+        audio.volume = AUDIO_VOLUMES[name] * this.masterVolume / 100;
+        audio.muted = this.masterVolume === 0;
+    }
+
+    setMasterVolume(value) {
+        const volume = Number(value);
+        if (!Number.isFinite(volume)) return;
+        this.masterVolume = Math.max(0, Math.min(100, volume));
+        this._applyVolume(this.music, 'music');
+        this._applyVolume(this.ticking, 'ticking');
+        for (const [name, audio] of this.effects) {
+            this._applyVolume(audio, name);
+        }
+        try {
+            globalThis.localStorage?.setItem(MASTER_VOLUME_KEY, String(this.masterVolume));
+        } catch {
+            // Preserve the selected volume in memory if persistence is blocked.
+        }
     }
 
     _installAutoplayUnlock() {
@@ -84,14 +119,13 @@ export class AudioManager {
             return;
         }
 
-        const wasMuted = this.music.muted;
         this.music.muted = true;
         this.music.currentTime = 0;
 
         const playback = this.music.play();
         if (!playback || typeof playback.then !== 'function') {
             this.music.pause();
-            this.music.muted = wasMuted;
+            this.music.muted = this.masterVolume === 0;
             this.isUnlocked = true;
             return;
         }
@@ -100,11 +134,11 @@ export class AudioManager {
             .then(() => {
                 this.music.pause();
                 this.music.currentTime = 0;
-                this.music.muted = wasMuted;
+                this.music.muted = this.masterVolume === 0;
                 this.isUnlocked = true;
             })
             .catch(() => {
-                this.music.muted = wasMuted;
+                this.music.muted = this.masterVolume === 0;
             });
     }
 
@@ -117,7 +151,7 @@ export class AudioManager {
             ++this._musicPlaybackGeneration;
         this._isMusicStarting = true;
         this.music.loop = true;
-        this.music.volume = AUDIO_VOLUMES.music;
+        this._applyVolume(this.music, 'music');
 
         const playback = this.music.play();
         if (!playback || typeof playback.then !== 'function') {
@@ -166,7 +200,7 @@ export class AudioManager {
             ++this._tickingPlaybackGeneration;
         this._isTickingStarting = true;
         this.ticking.loop = true;
-        this.ticking.volume = AUDIO_VOLUMES.ticking;
+        this._applyVolume(this.ticking, 'ticking');
 
         const playback = this.ticking.play();
         if (!playback || typeof playback.then !== 'function') {
@@ -230,7 +264,7 @@ export class AudioManager {
 
         this.lastPlayedAt.set(name, now);
         audio.currentTime = 0;
-        audio.volume = AUDIO_VOLUMES[name];
+        this._applyVolume(audio, name);
 
         const playback = audio.play();
         if (!playback || typeof playback.catch !== 'function') {
@@ -258,7 +292,7 @@ export class AudioManager {
         }
 
         alarm.currentTime = 0;
-        alarm.volume = AUDIO_VOLUMES.alarm;
+        this._applyVolume(alarm, 'alarm');
 
         const finishAlarm = () => {
             if (this._finishAlarmEndedHandler) {
