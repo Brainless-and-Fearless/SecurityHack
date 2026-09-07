@@ -1,13 +1,18 @@
 import { AudioManager } from './AudioManager.js';
 
 export class Controller {
-    constructor(model, view, lobbyView, network, bestiaryView = null) {
+    constructor(model, view, lobbyView, network, bestiaryView = null, scoreboardView = null) {
         this.model = model;
         this.view = view;
         this.lobbyView = lobbyView;
         this.network = network;
         this.bestiaryView = bestiaryView;
+        this.scoreboardView = scoreboardView;
         this.audio = new AudioManager();
+        this.volumeControls = ['entry', 'game'].map((mode) => ({
+            slider: document.getElementById(`${mode}-master-volume`),
+            output: document.getElementById(`${mode}-master-volume-value`),
+        }));
 
         this.gameScreen = document.getElementById('game-screen');
         this.playerName = document.getElementById('player-name');
@@ -92,8 +97,23 @@ export class Controller {
         this.initEvents();
     }
 
+    syncMasterVolumeControls() {
+        for (const { slider, output } of this.volumeControls) {
+            if (slider) slider.value = String(this.audio.masterVolume);
+            if (output) output.textContent = `${this.audio.masterVolume}%`;
+        }
+    }
+
     initEvents() {
         const lv = this.lobbyView;
+
+        this.syncMasterVolumeControls();
+        for (const { slider } of this.volumeControls) {
+            slider?.addEventListener('input', () => {
+                this.audio.setMasterVolume(Number(slider.value));
+                this.syncMasterVolumeControls();
+            });
+        }
 
         lv.modeCreateBtn.addEventListener(
             'click',
@@ -369,6 +389,7 @@ export class Controller {
         this.gameScreen?.classList.add('hidden');
         this.forfeitGameBtn?.classList.add('hidden');
         this.bestiaryView?.hide?.();
+        this.scoreboardView?.clear();
         this.model?.resetGame?.();
         this.isGameFinished = false;
         this.isResumingSession = false;
@@ -416,6 +437,7 @@ export class Controller {
             gameState.gameId,
             gameState.game
         );
+        this.scoreboardView?.render(this.model.state, this.getCurrentPlayerId());
 
         if (this.model.state.status === 'running') {
             this.forfeitGameBtn?.classList.remove('hidden');
@@ -492,6 +514,7 @@ export class Controller {
         this.forfeitGameBtn?.classList.remove('hidden');
         this.resetForfeitConfirmation();
         this.bestiaryView?.showForGame?.();
+        this.scoreboardView?.render(this.model.state, this.getCurrentPlayerId());
 
         this.playerName.textContent =
             nickname;

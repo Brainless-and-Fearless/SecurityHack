@@ -345,6 +345,53 @@ input.input-error {
     box-shadow: 0 0 0 3px rgba(var(--danger-color-rgb), 0.12);
 }
 
+.volume-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px 8px;
+    color: var(--surface-muted);
+    font-size: 11px;
+}
+
+.volume-control label {
+    grid-column: 1 / -1;
+}
+
+.volume-control output {
+    min-width: 4ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.volume-control input[type="range"] {
+    width: 100%;
+    min-width: 0;
+    min-height: 20px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    accent-color: var(--cyan-color);
+    color-scheme: dark;
+    cursor: pointer;
+}
+
+.volume-control input[type="range"]:focus-visible {
+    outline: 2px solid var(--cyan-color);
+    outline-offset: 2px;
+}
+
+.volume-control-entry {
+    margin-top: 14px;
+}
+
+.volume-control-game {
+    width: 120px;
+    flex-shrink: 0;
+}
+
 /* =========================================================
    BUTTONS
    ========================================================= */

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AudioManager } from '../js/AudioManager.js';
 import { AudioTestDouble } from './helpers/audio-test-double.js';
 
@@ -21,11 +21,91 @@ async function flushPromises() {
 
 
 describe('AudioManager', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
     beforeEach(() => {
+        vi.stubGlobal('localStorage', {
+            getItem: vi.fn(() => null),
+            setItem: vi.fn(),
+        });
         vi.stubGlobal('document', {
             addEventListener: vi.fn(),
             removeEventListener: vi.fn(),
         });
+    });
+
+    test('master volume scales every sound without restarting playback', async () => {
+        const manager = new AudioManager();
+        const sounds = [manager.music, manager.ticking, ...manager.effects.values()];
+        const baseVolumes = sounds.map((sound) => sound.volume);
+        manager.startMusic();
+        manager.startTicking();
+        await manager.playEffect('click');
+        await flushPromises();
+        sounds.forEach((sound) => { sound.currentTime = 7; });
+        const playCounts = sounds.map((sound) => sound.play.mock.calls.length);
+
+        for (const percent of [35, 0, 100]) {
+            manager.setMasterVolume(percent);
+            sounds.forEach((sound, index) => {
+                expect(sound.volume).toBeCloseTo(baseVolumes[index] * percent / 100);
+                expect(sound.muted).toBe(percent === 0);
+                expect(sound.currentTime).toBe(7);
+                expect(sound.play).toHaveBeenCalledTimes(playCounts[index]);
+                expect(sound.pause).not.toHaveBeenCalled();
+            });
+        }
+        expect(manager.isMusicPlaying).toBe(true);
+        expect(manager.isTickingPlaying).toBe(true);
+    });
+
+    test('new playback and finish sounds retain the selected master scale', async () => {
+        const manager = new AudioManager();
+        manager.setMasterVolume(50);
+        const sounds = [manager.music, manager.ticking, ...manager.effects.values()];
+        const scaledVolumes = sounds.map((sound) => sound.volume);
+        manager.startMusic();
+        manager.startTicking();
+        for (const name of ['success', 'click', 'wrong']) await manager.playEffect(name);
+        manager.playFinishSequence(true);
+        manager.effects.get('alarm').dispatchEnded();
+        await flushPromises();
+        sounds.forEach((sound, index) => expect(sound.volume).toBe(scaledVolumes[index]));
+        expect(manager.effects.get('win').play).toHaveBeenCalledOnce();
+    });
+
+    test('master volume persists, including mute, and survives match reset', () => {
+        const values = new Map();
+        localStorage.getItem.mockImplementation((key) => values.get(key) ?? null);
+        localStorage.setItem.mockImplementation((key, value) => values.set(key, value));
+        const manager = new AudioManager();
+        manager.setMasterVolume(0);
+        manager.resetForNewMatch();
+        const restored = new AudioManager();
+        expect(restored.masterVolume).toBe(0);
+        expect(restored.music.muted).toBe(true);
+        expect(restored.music.volume).toBe(0);
+    });
+
+    test('unavailable storage keeps the session volume usable', () => {
+        localStorage.getItem.mockImplementation(() => { throw new Error('blocked'); });
+        localStorage.setItem.mockImplementation(() => { throw new Error('blocked'); });
+        const manager = new AudioManager();
+        expect(manager.masterVolume).toBe(100);
+        expect(() => manager.setMasterVolume(25)).not.toThrow();
+        expect(manager.music.volume).toBeCloseTo(0.24 * 0.25);
+    });
+
+    test('unlock completion does not restore an obsolete mute setting', async () => {
+        const manager = new AudioManager();
+        const playback = deferred();
+        manager.music.setPlayImplementation(() => playback.promise);
+        manager.unlock();
+        manager.setMasterVolume(0);
+        playback.resolve();
+        await flushPromises();
+        expect(manager.music.muted).toBe(true);
+        expect(manager.music.volume).toBe(0);
     });
 
     test('constructs music, ticking, and effect audio objects', () => {

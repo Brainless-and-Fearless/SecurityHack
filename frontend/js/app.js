@@ -4,12 +4,14 @@ import { Controller } from './Controller.js';
 import { LobbyView } from './LobbyView.js';
 import { Network } from './Network.js';
 import { BestiaryView } from './BestiaryView.js';
+import { ScoreboardView } from './ScoreboardView.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     const gameModel = new Model();
     const gameView = new View();
     const lobbyView = new LobbyView();
     const bestiaryView = new BestiaryView();
+    const scoreboardView = new ScoreboardView();
 
     let controller;
 
@@ -74,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
         lobbyView,
         network,
         bestiaryView,
+        scoreboardView,
     );
 
     network.resumeStoredSession?.();
