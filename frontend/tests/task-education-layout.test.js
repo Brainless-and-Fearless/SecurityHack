@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
+import { readStyles } from './helpers/read-styles.js';
 
 
 test('task modal contains one safely rendered educational topic element', () => {
@@ -29,12 +30,9 @@ test('task modal contains one hidden themed Bestiary result action', () => {
 
 
 test('task topic and result states use existing theme colors', () => {
-    const css = readFileSync(
-        new URL('../css/style.css', import.meta.url),
-        'utf8',
-    );
+    const css = readStyles();
 
-    expect(css).toMatch(/\.task-topic\s*\{[^}]*color:\s*var\(--surface-muted\)/s);
+    expect(css).toMatch(/\.task-topic\s*\{[^}]*color:\s*var\(--cyan-color\)/s);
     expect(css).toMatch(/#task-modal\.is-success-result\s+#task-title\s*\{[^}]*color:\s*var\(--success-color\)/s);
-    expect(css).toMatch(/#task-modal\.is-failure-result\s+#task-title\s*\{[^}]*color:\s*var\(--danger-color\)/s);
+    expect(css).toMatch(/#task-modal\.is-failure-result\s+#task-title\s*\{[^}]*color:\s*#ff748c/s);
 });

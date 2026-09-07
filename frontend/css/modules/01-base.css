@@ -391,6 +391,31 @@ button:disabled {
     transform: none;
 }
 
+:is(#submit-task-btn, #bestiary-challenge-submit, #upgrade-node-btn) {
+    background: var(--bg-surface);
+    color: var(--text-color);
+    border-color: var(--success-color);
+}
+
+:is(#submit-task-btn, #bestiary-challenge-submit, #upgrade-node-btn):hover:not(:disabled),
+:is(#submit-task-btn, #bestiary-challenge-submit, #upgrade-node-btn):focus-visible:not(:disabled) {
+    background: var(--bg-surface-hover);
+    color: var(--text-color);
+}
+
+:is(#submit-task-btn, #bestiary-challenge-submit, #upgrade-node-btn):active:not(:disabled) {
+    background: var(--bg-deep);
+    color: var(--text-color);
+}
+
+:is(#submit-task-btn, #bestiary-challenge-submit, #upgrade-node-btn):disabled {
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    border-color: var(--surface-line);
+    opacity: 1;
+    filter: none;
+}
+
 .btn-primary {
     border-color: rgba(255, 194, 204, 0.38);
 

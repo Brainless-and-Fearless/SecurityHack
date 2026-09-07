@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { BestiaryView } from '../js/BestiaryView.js';
+import { Controller } from '../js/Controller.js';
 
 
 function createClassList(initial = []) {
@@ -25,6 +26,7 @@ function createElement(id = '') {
         textContent: '',
         value: '',
         disabled: false,
+        scrollTop: 0,
         className: '',
         classList: createClassList(),
         dataset: {},
@@ -100,6 +102,60 @@ describe('BestiaryView', () => {
     beforeEach(() => {
         elements = createBestiaryDom();
         view = new BestiaryView();
+    });
+
+    test.each([
+        ['catalog', 'locked'], ['catalog', 'opened'],
+        ['deep-link', 'locked'], ['deep-link', 'opened'],
+    ])('%s → %s starts detail at the panel top', (source, outcome) => {
+        const controller = Object.assign(Object.create(Controller.prototype), {
+            bestiaryView: view,
+            network: {
+                connectionState: 'connected',
+                openKnowledge: vi.fn(),
+                listKnowledge: vi.fn(),
+            },
+            taskResultEducation: { knowledge_module_id: 'module_1' },
+            closeTaskModal: vi.fn(function () { this.taskResultEducation = null; }),
+        });
+        view.setHandlers({
+            onModuleSelected: (id) => controller.handleKnowledgeModuleSelected(id),
+        });
+        view.renderCatalog(modules());
+        elements['bestiary-panel'].scrollTop = 420;
+        elements['bestiary-content'].scrollTop = 180;
+
+        if (source === 'catalog') {
+            elements['bestiary-catalog'].children[1].click();
+        } else {
+            controller.handleOpenTaskResultKnowledge();
+            expect(controller.closeTaskModal).toHaveBeenCalledOnce();
+            expect(controller.bestiaryView).toBe(view);
+        }
+        expect(controller.network.openKnowledge).toHaveBeenCalledExactlyOnceWith('module_1');
+        expect(controller.network.listKnowledge).not.toHaveBeenCalled();
+
+        const module = { id: 'module_1', title: 'Module title', categories: ['Category'] };
+        if (outcome === 'locked') {
+            controller.onKnowledgeLocked({ module, challenge: { id: 'gate', question: 'Gate question' } });
+            expect(elements['bestiary-challenge-question'].textContent).toBe('Gate question');
+        } else {
+            controller.onKnowledgeOpened({ module: { ...module, content: 'Article text' } });
+            expect(elements['bestiary-content'].textContent).toBe('Article text');
+        }
+
+        expect(elements['bestiary-panel'].scrollTop).toBe(0);
+        expect(elements['bestiary-content'].scrollTop).toBe(0);
+        expect(elements['bestiary-module-title'].textContent).toBe('Module title');
+        expect(elements['bestiary-detail'].classList.contains('hidden')).toBe(false);
+        expect(elements['bestiary-catalog'].classList.contains('hidden')).toBe(true);
+
+        // A catalog refresh must not push the article below the module list again.
+        view.renderCatalog(modules());
+        expect(elements['bestiary-catalog'].classList.contains('hidden')).toBe(true);
+        elements['bestiary-back-btn'].click();
+        expect(elements['bestiary-catalog'].classList.contains('hidden')).toBe(false);
+        expect(elements['bestiary-detail'].classList.contains('hidden')).toBe(true);
     });
 
     test('renders every authoritative catalog module and its lock state', () => {

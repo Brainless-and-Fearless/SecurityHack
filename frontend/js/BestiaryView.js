@@ -160,6 +160,7 @@ export class BestiaryView {
 
     showCatalog() {
         this.detail?.classList.add('hidden');
+        this.catalog?.classList.remove('hidden');
         this.panel?.classList.remove('is-expanded');
     }
 
@@ -217,8 +218,11 @@ export class BestiaryView {
     }
 
     _showDetail() {
+        this.catalog?.classList.add('hidden');
         this.detail?.classList.remove('hidden');
         this.panel?.classList.add('is-expanded');
+        if (this.panel) this.panel.scrollTop = 0;
+        if (this.content) this.content.scrollTop = 0;
     }
 
     _catalogButtonClass(isLocked) {
