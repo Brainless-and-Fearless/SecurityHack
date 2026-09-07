@@ -1384,7 +1384,7 @@ def test_upgrade_node_acknowledges_and_broadcasts_authoritative_state():
                         "node_id": node_id,
                         "from_level": "K1",
                         "to_level": "K2",
-                        "cost": 10.0,
+                        "cost": 15.0,
                     }
 
                     host_game_state = host_ws.receive_json()
@@ -1403,7 +1403,7 @@ def test_upgrade_node_acknowledges_and_broadcasts_authoritative_state():
                     ] == "K2"
                     assert updated_game["players"][host_player_id][
                         "resources"
-                    ] == starting_resources - 10.0
+                    ] == starting_resources - 15.0
 
                     game_loop_manager.lock.assert_any_call(
                         started["game_id"]
@@ -1744,7 +1744,7 @@ def test_player_cannot_upgrade_enemy_node_over_websocket():
                     )
                     assert host_game_state["game"]["players"][
                         host_player_id
-                    ]["resources"] == 10.0
+                    ]["resources"] == 5.0
         finally:
             game_loop_manager.start = original_start
 
@@ -1783,7 +1783,7 @@ def test_upgrade_node_rejects_insufficient_resources_without_broadcast():
                     ] == "K2"
                     assert host_game_state["game"]["players"][
                         host_player_id
-                    ]["resources"] == 10.0
+                    ]["resources"] == 5.0
 
                     for request_id in (
                         "req_upgrade_without_resources",

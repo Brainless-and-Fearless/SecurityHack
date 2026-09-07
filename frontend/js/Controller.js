@@ -735,8 +735,8 @@ export class Controller {
 
     showNodeUpgradeAction(node) {
         const upgrades = {
-            K1: { toLevel: 'K2', cost: 10 },
-            K2: { toLevel: 'K3', cost: 20 },
+            K1: { toLevel: 'K2', cost: 15 },
+            K2: { toLevel: 'K3', cost: 50 },
         };
         const currentLevel = node.defence_level;
         const upgrade = upgrades[currentLevel];
