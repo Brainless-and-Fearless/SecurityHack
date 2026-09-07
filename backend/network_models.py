@@ -148,6 +148,12 @@ class OpenKnowledgeMessage(BaseModel):
     module_id: str
 
 
+class SearchKnowledgeMessage(BaseModel):
+    type: Literal["SEARCH_KNOWLEDGE"]
+    request_id: str
+    query: str
+
+
 class AnswerKnowledgeChallengeMessage(BaseModel):
     type: Literal["ANSWER_KNOWLEDGE_CHALLENGE"]
     request_id: str
@@ -264,6 +270,13 @@ class KnowledgeChallengePrompt(BaseModel):
 class KnowledgeCatalogMessage(BaseModel):
     type: Literal["KNOWLEDGE_CATALOG"]
     request_id: str
+    modules: list[KnowledgeCatalogModule]
+
+
+class KnowledgeSearchResultsMessage(BaseModel):
+    type: Literal["KNOWLEDGE_SEARCH_RESULTS"]
+    request_id: str
+    query: str
     modules: list[KnowledgeCatalogModule]
 
 

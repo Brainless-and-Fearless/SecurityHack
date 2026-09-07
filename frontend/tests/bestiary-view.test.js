@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { BestiaryView } from '../js/BestiaryView.js';
 import { Controller } from '../js/Controller.js';
 
@@ -47,6 +47,10 @@ function createElement(id = '') {
                 listener({ preventDefault: vi.fn() });
             }
         },
+        input(value) {
+            this.value = value;
+            for (const listener of listeners.input ?? []) listener({ target: this });
+        },
     };
 }
 
@@ -54,6 +58,7 @@ function createElement(id = '') {
 function createBestiaryDom() {
     const ids = [
         'bestiary-panel',
+        'bestiary-search',
         'bestiary-catalog',
         'bestiary-detail',
         'bestiary-back-btn',
@@ -360,5 +365,116 @@ describe('BestiaryView', () => {
         expect(elements['bestiary-module-title'].textContent)
             .toBe('<img src=x onerror=alert(1)>');
         expect(document.createElement).not.toHaveBeenCalledWith('script');
+    });
+});
+
+describe('Bestiary search', () => {
+    let elements, view, search, select;
+    beforeEach(() => {
+        vi.useFakeTimers();
+        elements = createBestiaryDom();
+        view = new BestiaryView();
+        search = vi.fn().mockReturnValueOnce('search-1').mockReturnValueOnce('search-2');
+        select = vi.fn();
+        view.setHandlers({ onSearchRequested: search, onModuleSelected: select });
+        view.renderCatalog(modules());
+    });
+    afterEach(() => {
+        expect(vi.getTimerCount()).toBe(0);
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    test('debounces typing, clearing cancels the timer and restores the full catalog', () => {
+        const input = elements['bestiary-search'];
+        input.input('base');
+        vi.advanceTimersByTime(200);
+        expect(search).not.toHaveBeenCalled();
+        input.input(' base64 ');
+        vi.advanceTimersByTime(250);
+        expect(search).toHaveBeenCalledExactlyOnceWith('base64');
+        view.renderSearchResults({ request_id: 'search-1', query: 'base64', modules: modules(1) });
+        expect(view.catalogButtons.size).toBe(1);
+        input.input('rot');
+        input.input('  ');
+        vi.advanceTimersByTime(300);
+        expect(search).toHaveBeenCalledTimes(1);
+        expect(view.catalogButtons.size).toBe(11);
+        view.renderSearchResults({ request_id: 'search-1', query: 'base64', modules: modules(1) });
+        expect(view.catalogButtons.size).toBe(11);
+    });
+
+    test('ignores stale responses even if the user returns to an earlier query', () => {
+        const input = elements['bestiary-search'];
+        input.input('base64');
+        vi.advanceTimersByTime(250);
+        input.input('rot13');
+        view.renderSearchResults({ request_id: 'search-1', query: 'base64', modules: modules(1) });
+        expect(view.catalogButtons.size).toBe(0);
+        input.input('base64');
+        vi.advanceTimersByTime(250);
+        view.renderSearchResults({ request_id: 'search-2', query: 'base64', modules: modules(2) });
+        view.renderSearchResults({ request_id: 'search-1', query: 'base64', modules: modules(1) });
+        expect(view.catalogButtons.size).toBe(2);
+    });
+
+    test('no matches shows only safe empty-result text', () => {
+        elements['bestiary-search'].input('<script>no match</script>');
+        vi.advanceTimersByTime(250);
+        view.renderSearchResults({ request_id: 'search-1', query: '<script>no match</script>', modules: [] });
+        expect(elements['bestiary-catalog'].children[0].textContent).toBe('Ничего не найдено');
+        expect(elements['bestiary-catalog'].children[0].children).toEqual([]);
+    });
+
+    test.each(['locked', 'opened'])('result click reuses module selection and Back retains search after %s', (mode) => {
+        elements['bestiary-search'].input('base64');
+        vi.advanceTimersByTime(250);
+        const module = modules(1)[0];
+        view.renderSearchResults({ request_id: 'search-1', query: 'base64', modules: [module] });
+        view.catalogButtons.get(module.id).click();
+        expect(select).toHaveBeenCalledExactlyOnceWith(module.id);
+        view.panel.scrollTop = 400;
+        if (mode === 'locked') {
+            view.renderLocked({ module, challenge: { id: 'gate', question: 'Question' } });
+            expect(view.challenge.classList.contains('hidden')).toBe(false);
+        } else {
+            view.renderOpened({ ...module, content: 'Article' });
+            expect(view.content.textContent).toBe('Article');
+        }
+        expect(view.panel.scrollTop).toBe(0);
+        elements['bestiary-back-btn'].click();
+        expect(elements['bestiary-search'].value).toBe('base64');
+        expect(view.catalogButtons.size).toBe(1);
+        expect(view.catalog.classList.contains('hidden')).toBe(false);
+        elements['bestiary-search'].input('');
+        expect(view.catalogButtons.size).toBe(11);
+    });
+
+    test('hiding cancels queued search and invalidates in-flight results', () => {
+        elements['bestiary-search'].input('base64');
+        vi.advanceTimersByTime(250);
+        elements['bestiary-search'].input('rot13');
+        view.hide();
+        vi.advanceTimersByTime(300);
+        expect(search).toHaveBeenCalledTimes(1);
+        view.renderSearchResults({ request_id: 'search-1', query: 'base64', modules: modules(1) });
+        expect(view.panel.classList.contains('hidden')).toBe(true);
+        expect(elements['bestiary-search'].value).toBe('');
+    });
+
+    test('authoritative catalog refresh rechecks search locks and clearing keeps an unlocked module readable', () => {
+        elements['bestiary-search'].input('base64');
+        vi.advanceTimersByTime(250);
+        view.renderSearchResults({ request_id: 'search-1', query: 'base64', modules: modules(1) });
+        view.renderCatalog(modules());
+        vi.advanceTimersByTime(250);
+        expect(search).toHaveBeenCalledTimes(2);
+        view.renderSearchResults({ request_id: 'search-2', query: 'base64', modules: modules(1) });
+        view.renderUnlocked({ ...modules(1)[0], content: 'Article' });
+        elements['bestiary-back-btn'].click();
+        expect(view.catalogButtons.get('module_0').className).toContain('is-readable');
+        elements['bestiary-search'].input('');
+        expect(view.catalogButtons.size).toBe(11);
+        expect(view.catalogButtons.get('module_0').className).toContain('is-readable');
     });
 });

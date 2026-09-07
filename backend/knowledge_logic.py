@@ -2,9 +2,21 @@ import hashlib
 
 from knowledge_pool import (
     ACCESS_CHALLENGES_BY_ID,
+    KNOWLEDGE_MODULES,
     KNOWLEDGE_MODULES_BY_ID,
 )
 from models import AccessChallenge, GameState, GameStatus, KnowledgeModule
+
+
+def search_knowledge_modules(query: str) -> list[KnowledgeModule]:
+    normalized = query.strip().casefold()
+    if not normalized:
+        return []
+    return [
+        module for module in KNOWLEDGE_MODULES
+        if any(normalized in field.casefold() for field in
+               [module.title, *module.categories, module.content])
+    ]
 
 
 def normalize_knowledge_answer(answer: str) -> str:

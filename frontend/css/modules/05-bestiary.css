@@ -77,6 +77,11 @@
     max-height: calc(100dvh - 48px);
 }
 
+.bestiary-search {
+    margin-bottom: 12px;
+    min-width: 0;
+}
+
 .bestiary-heading {
     margin: 0 0 12px;
     color: var(--text-color);

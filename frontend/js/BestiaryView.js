@@ -1,7 +1,10 @@
+const SEARCH_DEBOUNCE_MS = 250;
+
 export class BestiaryView {
     constructor() {
         this.panel = document.getElementById('bestiary-panel');
         this.catalog = document.getElementById('bestiary-catalog');
+        this.searchInput = document.getElementById('bestiary-search');
         this.detail = document.getElementById('bestiary-detail');
         this.backButton = document.getElementById('bestiary-back-btn');
         this.closeButton = document.getElementById('bestiary-close-btn');
@@ -28,8 +31,18 @@ export class BestiaryView {
 
         this.handlers = {};
         this.catalogButtons = new Map();
+        this.catalogModules = [];
+        this.searchQuery = '';
+        this.searchTimer = null;
+        this.searchRequestId = null;
         this.activeChallenge = null;
         this.challengeSubmissionPending = false;
+
+        this.searchInput?.addEventListener('input', () => {
+            this.searchQuery = this.searchInput.value.trim();
+            this.showCatalog();
+            this._queueSearch();
+        });
 
         this.backButton?.addEventListener('click', () => {
             this.showCatalog();
@@ -47,6 +60,50 @@ export class BestiaryView {
     }
 
     renderCatalog(modules) {
+        this.catalogModules = modules ?? [];
+        if (this.searchQuery) {
+            // A fresh authoritative catalog (resume/finish) also refreshes search locks.
+            this._queueSearch();
+        } else {
+            this._renderCatalogButtons(this.catalogModules);
+        }
+        this.panel?.classList.remove('hidden');
+    }
+
+    _cancelSearch() {
+        if (this.searchTimer !== null) globalThis.clearTimeout(this.searchTimer);
+        this.searchTimer = null;
+        this.searchRequestId = null;
+    }
+
+    _queueSearch() {
+        this._cancelSearch();
+        if (!this.searchQuery) {
+            this._renderCatalogButtons(this.catalogModules);
+            return;
+        }
+        this._renderCatalogButtons([]);
+        this.searchTimer = globalThis.setTimeout(() => {
+            this.searchTimer = null;
+            this.searchRequestId = this.handlers.onSearchRequested?.(this.searchQuery) || null;
+        }, SEARCH_DEBOUNCE_MS);
+    }
+
+    renderSearchResults(message) {
+        if (!this.searchQuery || !this.searchRequestId
+            || message.request_id !== this.searchRequestId
+            || message.query !== this.searchQuery) return;
+        const modules = message.modules ?? [];
+        this._renderCatalogButtons(modules);
+        if (!modules.length) {
+            const empty = document.createElement('p');
+            empty.className = 'bestiary-categories';
+            empty.textContent = 'Ничего не найдено';
+            this.catalog?.appendChild(empty);
+        }
+    }
+
+    _renderCatalogButtons(modules) {
         this.catalog?.replaceChildren();
         this.catalogButtons.clear();
 
@@ -75,8 +132,6 @@ export class BestiaryView {
             this.catalogButtons.set(module.id, button);
             this.catalog?.appendChild(button);
         }
-
-        this.panel?.classList.remove('hidden');
     }
 
     renderLocked({ module, challenge }) {
@@ -159,6 +214,7 @@ export class BestiaryView {
     }
 
     showCatalog() {
+        this.searchInput?.classList.remove('hidden');
         this.detail?.classList.add('hidden');
         this.catalog?.classList.remove('hidden');
         this.panel?.classList.remove('is-expanded');
@@ -178,10 +234,17 @@ export class BestiaryView {
     }
 
     hide() {
+        this._cancelSearch();
+        this.searchQuery = '';
+        if (this.searchInput) this.searchInput.value = '';
+        this._renderCatalogButtons(this.catalogModules);
         this.panel?.classList.add('hidden');
     }
 
     markModuleReadable(moduleId) {
+        this.catalogModules = this.catalogModules.map((module) => (
+            module.id === moduleId ? { ...module, is_locked: false } : module
+        ));
         const button = this.catalogButtons.get(moduleId);
         if (!button) {
             return;
@@ -218,6 +281,7 @@ export class BestiaryView {
     }
 
     _showDetail() {
+        this.searchInput?.classList.add('hidden');
         this.catalog?.classList.add('hidden');
         this.detail?.classList.remove('hidden');
         this.panel?.classList.add('is-expanded');

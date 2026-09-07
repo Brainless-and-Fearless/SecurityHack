@@ -439,6 +439,10 @@ export class Network {
                 this.handlers.onKnowledgeCatalog?.(data);
                 break;
 
+            case 'KNOWLEDGE_SEARCH_RESULTS':
+                this.handlers.onKnowledgeSearchResults?.(data);
+                break;
+
             case 'KNOWLEDGE_OPENED':
                 this.handlers.onKnowledgeOpened?.(data);
                 break;
@@ -620,6 +624,12 @@ export class Network {
             request_id: this._requestId(),
             module_id: moduleId,
         });
+    }
+
+    searchKnowledge(query) {
+        const requestId = this._requestId();
+        this._send('SEARCH_KNOWLEDGE', { request_id: requestId, query });
+        return requestId;
     }
 
     answerKnowledgeChallenge(moduleId, challengeId, answer) {

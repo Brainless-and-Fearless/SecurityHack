@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     onConnectionStateChange: vi.fn(),
     onRoomLeft: vi.fn(),
     onKnowledgeCatalog: vi.fn(),
+    onKnowledgeSearchResults: vi.fn(),
     onKnowledgeOpened: vi.fn(),
     onKnowledgeLocked: vi.fn(),
     onKnowledgeChallengeFailed: vi.fn(),
@@ -118,6 +119,10 @@ vi.mock('../js/Controller.js', () => ({
             mocks.onKnowledgeCatalog(message);
         }
 
+        onKnowledgeSearchResults(message) {
+            mocks.onKnowledgeSearchResults(message);
+        }
+
         onKnowledgeOpened(message) {
             mocks.onKnowledgeOpened(message);
         }
@@ -165,6 +170,7 @@ describe('app bootstrap', () => {
 
     test.each([
         ['KNOWLEDGE_CATALOG', 'onKnowledgeCatalog', 'onKnowledgeCatalog'],
+        ['KNOWLEDGE_SEARCH_RESULTS', 'onKnowledgeSearchResults', 'onKnowledgeSearchResults'],
         ['KNOWLEDGE_OPENED', 'onKnowledgeOpened', 'onKnowledgeOpened'],
         ['KNOWLEDGE_LOCKED', 'onKnowledgeLocked', 'onKnowledgeLocked'],
         [

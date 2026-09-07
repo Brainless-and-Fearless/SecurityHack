@@ -199,6 +199,7 @@ export class Controller {
             );
 
         this.bestiaryView?.setHandlers({
+            onSearchRequested: (query) => this.handleKnowledgeSearch(query),
             onModuleSelected: (moduleId) => (
                 this.handleKnowledgeModuleSelected(moduleId)
             ),
@@ -563,6 +564,12 @@ export class Controller {
         return true;
     }
 
+    handleKnowledgeSearch(query) {
+        if (!query.trim() || !this.isNetworkActionAvailable()
+            || typeof this.network.searchKnowledge !== 'function') return false;
+        return this.network.searchKnowledge(query);
+    }
+
     handleOpenTaskResultKnowledge() {
         const moduleId =
             this.taskResultEducation?.knowledge_module_id;
@@ -598,6 +605,10 @@ export class Controller {
 
     onKnowledgeCatalog(message) {
         this.bestiaryView?.renderCatalog(message.modules ?? []);
+    }
+
+    onKnowledgeSearchResults(message) {
+        this.bestiaryView?.renderSearchResults(message);
     }
 
     onKnowledgeOpened(message) {

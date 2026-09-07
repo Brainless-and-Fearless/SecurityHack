@@ -96,5 +96,7 @@ test('entry menu exposes one shared Bestiary panel outside the game screen', () 
 
     expect(html).toMatch(/id="open-bestiary-btn"[^>]*>\s*Бестиарий\s*</);
     expect(html.match(/id="bestiary-panel"/g)).toHaveLength(1);
+    expect(html.match(/id="bestiary-search"/g)).toHaveLength(1);
+    expect(html).toMatch(/class="bestiary-heading[^>]*>[^<]*<\/h2>\s*<input id="bestiary-search"/);
     expect(html).toMatch(/<\/div>\s*<aside id="bestiary-panel"/);
 });

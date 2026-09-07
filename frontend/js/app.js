@@ -55,6 +55,9 @@ document.addEventListener('DOMContentLoaded', () => {
         onKnowledgeCatalog: (message) =>
             controller.onKnowledgeCatalog(message),
 
+        onKnowledgeSearchResults: (message) =>
+            controller.onKnowledgeSearchResults(message),
+
         onKnowledgeOpened: (message) =>
             controller.onKnowledgeOpened(message),
 
