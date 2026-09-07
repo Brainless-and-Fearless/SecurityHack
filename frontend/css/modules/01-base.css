@@ -1,31 +1,88 @@
-/* Объявление цветовой палитры и переменных */
+/* =========================================================
+   БАЗА — Neon City Control Grid
+   Black / Graphite Edition
+   Палитра, базовые элементы, формы, панели и доступность.
+   ========================================================= */
+
 :root {
-    --bg-color: #0F172A;
-    --primary-color: #4F46E5;
-    --success-color: #10B981;
-    --danger-color: #E11D48;
-    --text-color: #F8FAFC;
+    /* =====================================================
+       Базовая палитра: чёрный, графит, холодная сталь
+       ===================================================== */
 
+    --bg-color: #050607;
+    --bg-night: #0a0c0f;
+    --bg-deep: #101317;
+    --bg-surface: #161a20;
+    --bg-surface-hover: #20262e;
 
-    --level1-color: #FBBF24;
-    --level2-color: #F97316;
-    --level3-color: #EF4444;
+    /* Главное действие: красный */
+    --primary-color: #ff3b5c;
+    --primary-color-rgb: 255, 59, 92;
 
+    /* Деструктивное / критическое действие */
+    --danger-color: #d92345;
+    --danger-color-rgb: 217, 35, 69;
 
-    --rank-kiddie: #94A3B8;
-    --rank-elite: #818CF8;
+    /* Редкий тёплый акцент для градиентов, не основной цвет UI */
+    --pink-accent: #f34b79;
+    --pink-accent-rgb: 243, 75, 121;
 
+    /* Вместо фиолетового — холодный серо-стальной */
+    --secondary-color: #7d8b99;
+    --secondary-color-rgb: 125, 139, 153;
 
-    /* Новое: производные поверхности для лобби — не новые цвета, а прозрачности базовых токенов */
-    --surface-1: rgba(255,255,255,0.05);
-    --surface-2: rgba(255,255,255,0.08);
-    --surface-line: rgba(255,255,255,0.10);
-    --surface-muted: rgba(248,250,252,0.45);
-    --radius-lg: 16px;
+    /* Технический неон */
+    --cyan-color: #54d9ff;
+    --cyan-color-rgb: 84, 217, 255;
+
+    --success-color: #47e6a1;
+    --warning-color: #ffba57;
+
+    --text-color: #f2f5f7;
+    --text-muted: #9aa5b1;
+
+    --level1-color: #ffcb6b;
+    --level2-color: #ff9d5c;
+    --level3-color: #ff5470;
+
+    --rank-kiddie: #b9c4cf;
+    --rank-elite: #d5dde5;
+
+    /* Поверхности */
+    --surface-1: rgba(18, 22, 27, 0.70);
+    --surface-2: rgba(31, 37, 45, 0.80);
+    --surface-3: rgba(49, 57, 67, 0.58);
+
+    /* Линии и приглушённые элементы */
+    --surface-line: rgba(151, 165, 178, 0.24);
+    --surface-line-bright: rgba(84, 217, 255, 0.42);
+    --surface-muted: rgba(202, 210, 218, 0.62);
+
+    /* Glass-панели */
+    --panel-glass: rgba(8, 10, 13, 0.78);
+    --panel-glass-strong: rgba(13, 16, 20, 0.92);
+
+    --radius-lg: 18px;
     --radius-md: 12px;
     --radius-sm: 8px;
+
+    --shadow-deep: 0 24px 70px rgba(0, 0, 0, 0.58);
+    --shadow-panel: 0 14px 42px rgba(0, 0, 0, 0.46);
+
+    --glow-red: 0 0 22px rgba(var(--primary-color-rgb), 0.30);
+    --glow-pink: 0 0 18px rgba(var(--pink-accent-rgb), 0.14);
+
+    /*
+     * Имя оставлено для обратной совместимости:
+     * остальные CSS-модули могут использовать --glow-violet.
+     */
+    --glow-violet: 0 0 24px rgba(148, 163, 184, 0.18);
+    --glow-cyan: 0 0 22px rgba(var(--cyan-color-rgb), 0.24);
 }
 
+/* =========================================================
+   RESET / ОСНОВА ДОКУМЕНТА
+   ========================================================= */
 
 * {
     box-sizing: border-box;
@@ -33,99 +90,388 @@
     padding: 0;
 }
 
+html {
+    min-height: 100%;
+    background: var(--bg-color);
+}
 
 body {
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    font-family: 'Inter', sans-serif;
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    overflow: hidden;
+    min-height: 100dvh;
     position: relative;
-}
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-x: hidden;
 
+    color: var(--text-color);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+
+    /*
+     * Чистый фон:
+     * без градиентов, сетки, glow, изображений и фоновой анимации.
+     */
+    background: var(--bg-color);
+}
 
 .font-code {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-
-
-*:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-    border-radius: 6px;
-}
-
-
-@media (prefers-reduced-motion: reduce) {
-    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
-}
-
-
-/* Glassmorphism */
-.glass-panel {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    padding: 24px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-}
-
 
 .hidden {
     display: none !important;
 }
 
+::selection {
+    color: #ffffff;
+    background: rgba(var(--primary-color-rgb), 0.55);
+}
+
+*:focus-visible {
+    outline: 2px solid var(--cyan-color);
+    outline-offset: 3px;
+    border-radius: 6px;
+    box-shadow: 0 0 0 4px rgba(var(--cyan-color-rgb), 0.16);
+}
+
+/* =========================================================
+   GLASS PANEL
+   ========================================================= */
+
+.glass-panel {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+
+    border: 1px solid var(--surface-line);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(255, 255, 255, 0.07) 0%,
+            rgba(255, 255, 255, 0.012) 30%,
+            transparent 64%
+        ),
+        var(--panel-glass);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.07),
+        inset 0 0 0 1px rgba(var(--cyan-color-rgb), 0.018),
+        var(--shadow-panel),
+        var(--shadow-deep);
+
+    backdrop-filter: blur(16px) saturate(115%);
+    -webkit-backdrop-filter: blur(16px) saturate(115%);
+}
+
+/* =========================================================
+   BASE CYBER FRAME
+   Внутренняя техническая рама:
+   графитовые кабель-каналы, разрывы, cyan/red-сегменты.
+   ========================================================= */
+
+.glass-panel::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset: 8px;
+
+    border: 1px solid rgba(151, 165, 178, 0.32);
+    border-radius: calc(var(--radius-lg) - 7px);
+
+    pointer-events: none;
+    opacity: 1;
+
+    background:
+        /* Верхний графитовый cable-channel с разрывами */
+        linear-gradient(
+            90deg,
+            transparent 0 7%,
+            rgba(30, 35, 42, 0.98) 7% 28%,
+            transparent 28% 34%,
+            rgba(30, 35, 42, 0.98) 34% 67%,
+            transparent 67% 73%,
+            rgba(30, 35, 42, 0.98) 73% 92%,
+            transparent 92% 100%
+        ) 0 0 / 100% 5px no-repeat,
+
+        /* Cyan-пунктир внутри верхней трассы */
+        repeating-linear-gradient(
+            90deg,
+            rgba(var(--cyan-color-rgb), 0.82) 0 7px,
+            transparent 7px 13px
+        ) 39% 2px / 23% 1px no-repeat,
+
+        /* Нижний графитовый силовой канал с разрывами */
+        linear-gradient(
+            90deg,
+            transparent 0 8%,
+            rgba(30, 35, 42, 0.98) 8% 29%,
+            transparent 29% 36%,
+            rgba(30, 35, 42, 0.98) 36% 64%,
+            transparent 64% 71%,
+            rgba(30, 35, 42, 0.98) 71% 92%,
+            transparent 92% 100%
+        ) 0 100% / 100% 5px no-repeat,
+
+        /* Red-пунктир внутри нижней трассы */
+        repeating-linear-gradient(
+            90deg,
+            rgba(var(--primary-color-rgb), 0.86) 0 7px,
+            transparent 7px 13px
+        ) 43% calc(100% - 2px) / 31% 1px no-repeat,
+
+        /* Левый графитовый cable-channel */
+        linear-gradient(
+            180deg,
+            transparent 0 8%,
+            rgba(30, 35, 42, 0.98) 8% 30%,
+            transparent 30% 38%,
+            rgba(30, 35, 42, 0.98) 38% 66%,
+            transparent 66% 74%,
+            rgba(30, 35, 42, 0.98) 74% 92%,
+            transparent 92% 100%
+        ) 0 0 / 5px 100% no-repeat,
+
+        /* Cyan-пунктир внутри левой вертикальной трассы */
+        repeating-linear-gradient(
+            180deg,
+            rgba(var(--cyan-color-rgb), 0.82) 0 7px,
+            transparent 7px 13px
+        ) 2px 40% / 1px 25% no-repeat,
+
+        /* Правый графитовый силовой cable-channel */
+        linear-gradient(
+            180deg,
+            transparent 0 9%,
+            rgba(30, 35, 42, 0.98) 9% 28%,
+            transparent 28% 36%,
+            rgba(30, 35, 42, 0.98) 36% 63%,
+            transparent 63% 71%,
+            rgba(30, 35, 42, 0.98) 71% 92%,
+            transparent 92% 100%
+        ) 100% 0 / 5px 100% no-repeat,
+
+        /* Red-пунктир внутри нижнего сегмента правой трассы */
+        repeating-linear-gradient(
+            180deg,
+            rgba(var(--primary-color-rgb), 0.88) 0 7px,
+            transparent 7px 13px
+        ) calc(100% - 2px) 72% / 1px 17% no-repeat,
+
+        /* Верхний левый cyan L-кронштейн */
+        linear-gradient(var(--cyan-color), var(--cyan-color))
+            10px 10px / 32px 2px no-repeat,
+
+        linear-gradient(var(--cyan-color), var(--cyan-color))
+            10px 10px / 2px 32px no-repeat,
+
+        /* Нижний правый red L-кронштейн */
+        linear-gradient(var(--primary-color), var(--primary-color))
+            right 10px bottom 10px / 32px 2px no-repeat,
+
+        linear-gradient(var(--primary-color), var(--primary-color))
+            right 10px bottom 10px / 2px 32px no-repeat;
+
+    box-shadow:
+        inset 0 0 16px rgba(var(--cyan-color-rgb), 0.02),
+        inset 0 0 20px rgba(var(--primary-color-rgb), 0.02);
+}
+
+.glass-panel > * {
+    position: relative;
+    z-index: 2;
+}
+
+/* =========================================================
+   FORMS
+   ========================================================= */
 
 input {
-    padding: 12px 14px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(0, 0, 0, 0.2);
-    color: var(--text-color);
-    font-family: 'Inter', sans-serif;
-    font-size: 14px;
-    outline: none;
     width: 100%;
-    transition: border-color .2s ease;
-}
-input::placeholder { color: var(--surface-muted); }
-input:focus { border-color: var(--primary-color); }
-input.input-error { border-color: var(--danger-color); }
+    min-height: 44px;
+    padding: 12px 14px;
 
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: var(--radius-sm);
+    outline: none;
+
+    color: var(--text-color);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    caret-color: var(--cyan-color);
+
+    background:
+        linear-gradient(135deg, rgba(var(--cyan-color-rgb), 0.035), transparent 50%),
+        rgba(3, 5, 7, 0.72);
+
+    box-shadow:
+        inset 0 1px 1px rgba(0, 0, 0, 0.34),
+        0 0 0 rgba(var(--cyan-color-rgb), 0);
+
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        background 0.2s ease;
+}
+
+input::placeholder {
+    color: var(--surface-muted);
+}
+
+input:hover {
+    border-color: rgba(176, 190, 204, 0.48);
+}
+
+input:focus {
+    border-color: var(--cyan-color);
+
+    background:
+        linear-gradient(135deg, rgba(var(--cyan-color-rgb), 0.085), transparent 58%),
+        rgba(3, 5, 7, 0.84);
+
+    box-shadow:
+        inset 0 1px 1px rgba(0, 0, 0, 0.30),
+        0 0 0 3px rgba(var(--cyan-color-rgb), 0.13),
+        0 0 18px rgba(var(--cyan-color-rgb), 0.13);
+}
+
+input.input-error {
+    border-color: var(--danger-color);
+    box-shadow: 0 0 0 3px rgba(var(--danger-color-rgb), 0.12);
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
 
 button {
-    padding: 12px;
-    border: none;
-    border-radius: 8px;
+    position: relative;
+    min-height: 42px;
+    padding: 11px 14px;
+    overflow: hidden;
+
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+
     cursor: pointer;
-    font-weight: 600;
-    font-family: 'Inter', sans-serif;
+    color: #ffffff;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     font-size: 14px;
-    transition: all 0.2s ease;
-    color: white;
+    font-weight: 650;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+
+    transform: translateZ(0);
+
+    transition:
+        transform 0.18s ease,
+        box-shadow 0.18s ease,
+        border-color 0.18s ease,
+        filter 0.18s ease,
+        background 0.18s ease;
 }
-button:active { transform: scale(0.98); }
-button:disabled { opacity: .4; cursor: not-allowed; filter: none; transform: none; }
 
+button:hover:not(:disabled) {
+    transform: translateY(-2px);
+}
 
-.btn-primary { background-color: var(--primary-color); }
-.btn-primary:hover:not(:disabled) { filter: brightness(1.2); }
+button:active:not(:disabled) {
+    transform: translateY(0) scale(0.985);
+}
 
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+    filter: saturate(0.48);
+    transform: none;
+}
 
-.btn-success { background-color: var(--success-color); }
-.btn-success:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-primary {
+    border-color: rgba(255, 194, 204, 0.38);
 
+    background:
+        linear-gradient(120deg, rgba(255, 255, 255, 0.18), transparent 38%),
+        linear-gradient(
+            120deg,
+            #cf2446 0%,
+            var(--primary-color) 50%,
+            #ff4c69 76%,
+            var(--pink-accent) 135%
+        );
 
-.btn-danger { background-color: var(--danger-color); }
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.24),
+        0 7px 22px rgba(var(--primary-color-rgb), 0.28);
+}
 
+.btn-primary:hover:not(:disabled) {
+    border-color: rgba(255, 235, 239, 0.76);
+    filter: brightness(1.08) saturate(1.08);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.32),
+        0 8px 29px rgba(var(--primary-color-rgb), 0.48),
+        0 0 18px rgba(var(--pink-accent-rgb), 0.14);
+}
+
+.btn-danger {
+    border-color: rgba(255, 158, 177, 0.30);
+
+    background:
+        linear-gradient(120deg, rgba(255, 255, 255, 0.12), transparent 42%),
+        linear-gradient(
+            120deg,
+            #8c142d 0%,
+            var(--danger-color) 58%,
+            #eb3157 100%
+        );
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.15),
+        0 7px 20px rgba(var(--danger-color-rgb), 0.22);
+}
+
+.btn-danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        0 8px 25px rgba(var(--danger-color-rgb), 0.36);
+}
+
+/* =========================================================
+   RANKS
+   ========================================================= */
 
 .rank-elite {
     color: var(--rank-elite);
-    text-shadow: 0 0 8px var(--rank-elite);
-    font-weight: bold;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(172, 194, 212, 0.38);
+}
+
+/* =========================================================
+   RESPONSIVE / ACCESSIBILITY
+   ========================================================= */
+
+@media (max-width: 480px) {
+    .glass-panel::before {
+        inset: 7px;
+        border-radius: calc(var(--radius-lg) - 6px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.001ms !important;
+    }
 }

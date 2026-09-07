@@ -1,73 +1,166 @@
 /* =========================================================
-   Игровое пространство
+   ИГРОВОЕ ПРОСТРАНСТВО
+   Black / Graphite Edition
+   Canvas не перекрашивается: player colors сохраняются.
    ========================================================= */
+
 #game-screen {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
+    overflow: hidden;
 }
 
+#game-screen::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.12;
+    background:
+        radial-gradient(circle at 15% 22%, rgba(var(--cyan-color-rgb), 0.10), transparent 26%),
+        radial-gradient(circle at 84% 79%, rgba(var(--primary-color-rgb), 0.08), transparent 28%);
+}
 
 #game-canvas {
+    position: relative;
+    z-index: 1;
+    display: block;
     width: 100%;
     height: 100%;
-    display: block;
 }
 
-
 /* =========================================================
-   HUD — верхняя панель во время игры
+   HUD — ВЕРХНЯЯ ИНФОРМАЦИОННАЯ ПАНЕЛЬ
    ========================================================= */
+
 .dashboard {
     position: absolute;
+    z-index: 10;
     top: 24px;
     left: 24px;
-    z-index: 10;
     display: flex;
     align-items: center;
     gap: 18px;
     padding: 14px 18px;
+    overflow: hidden;
+    isolation: isolate;
+
+    border: 1px solid rgba(151, 165, 178, 0.26);
+    border-radius: 14px;
+
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.045), transparent 40%),
+        rgba(8, 10, 13, 0.78);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.055),
+        0 14px 38px rgba(0, 0, 0, 0.42);
+
+    backdrop-filter: blur(14px) saturate(110%);
+    -webkit-backdrop-filter: blur(14px) saturate(110%);
 }
 
+/*
+ * Существующий cyan-индикатор верхней части HUD.
+ * Никаких red-элементов здесь нет.
+ */
+.dashboard::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    left: 18px;
+    width: 72px;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+        90deg,
+        var(--cyan-color),
+        rgba(151, 165, 178, 0.48),
+        transparent
+    );
+    box-shadow: 0 0 9px rgba(var(--cyan-color-rgb), 0.34);
+}
+
+/*
+ * Лёгкая внутренняя рамка HUD:
+ * только neutral steel и cyan L-угол.
+ * Red отсутствует, поэтому область кнопки выхода не пересекается.
+ */
+.dashboard::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset: 5px;
+    border: 1px solid rgba(151, 165, 178, 0.24);
+    border-radius: 10px;
+    pointer-events: none;
+
+    background:
+        linear-gradient(var(--cyan-color), var(--cyan-color))
+            8px 8px / 18px 1px no-repeat,
+
+        linear-gradient(var(--cyan-color), var(--cyan-color))
+            8px 8px / 1px 18px no-repeat;
+}
+
+/* HUD-контент всегда выше декоративных слоёв. */
+.dashboard > * {
+    position: relative;
+    z-index: 2;
+}
 
 .player-info {
     display: flex;
     align-items: center;
     gap: 10px;
 }
+
 .player-live-dot {
-    width: 8px; height: 8px;
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--success-color);
-    box-shadow: 0 0 8px var(--success-color);
-    flex-shrink: 0;
+    box-shadow: 0 0 9px rgba(71, 230, 161, 0.88);
     animation: pulseDot 2s ease-in-out infinite;
 }
+
 .player-info-text {
     display: flex;
     flex-direction: column;
     gap: 2px;
     line-height: 1.1;
 }
+
 #player-name {
+    color: var(--surface-muted);
     font-size: 13px;
     font-weight: 600;
-    color: var(--surface-muted);
-}
-#player-score {
-    font-size: 16px;
-    transition: color .25s ease;
 }
 
+#player-score {
+    color: var(--text-color);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 16px;
+    text-shadow: 0 0 10px rgba(var(--cyan-color-rgb), 0.10);
+    transition: color 0.25s ease;
+}
 
 .hud-divider {
-    width: 1px;
     align-self: stretch;
-    background: var(--surface-line);
+    width: 1px;
+    background: linear-gradient(
+        180deg,
+        transparent,
+        rgba(151, 165, 178, 0.30),
+        transparent
+    );
 }
-
 
 .game-hud {
     display: flex;
@@ -75,44 +168,55 @@
     gap: 10px;
 }
 
-
 .hud-item {
     display: flex;
     align-items: center;
-    gap: 10px;
     min-width: 96px;
+    gap: 10px;
     padding: 6px 14px 6px 8px;
-    border: 1px solid var(--surface-line);
+    border: 1px solid rgba(151, 165, 178, 0.20);
     border-radius: var(--radius-md);
-    background: var(--surface-1);
-    transition: background .2s ease, border-color .2s ease, transform .2s ease, box-shadow .2s ease;
+    background: rgba(255, 255, 255, 0.024);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.026);
+    transition:
+        background 0.2s ease,
+        border-color 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
 }
+
 .hud-item:hover {
-    background: var(--surface-2);
+    border-color: rgba(var(--cyan-color-rgb), 0.36);
+    background: rgba(var(--cyan-color-rgb), 0.055);
+    box-shadow: 0 0 14px rgba(var(--cyan-color-rgb), 0.08);
     transform: translateY(-1px);
 }
 
-
 .hud-icon {
-    width: 30px;
-    height: 30px;
-    flex-shrink: 0;
-    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(129, 140, 248, 0.14);
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(151, 165, 178, 0.24);
+    border-radius: 50%;
     color: var(--rank-elite);
-    transition: background .25s ease, color .25s ease;
+    background: rgba(151, 165, 178, 0.10);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transition: background 0.25s ease, color 0.25s ease;
 }
-.hud-icon svg { width: 16px; height: 16px; }
 
+.hud-icon svg {
+    width: 16px;
+    height: 16px;
+}
 
 .hud-timer .hud-icon {
-    background: rgba(79, 70, 229, 0.14);
-    color: var(--primary-color);
+    border-color: rgba(var(--cyan-color-rgb), 0.24);
+    color: var(--cyan-color);
+    background: rgba(var(--cyan-color-rgb), 0.11);
 }
-
 
 .hud-text {
     display: flex;
@@ -120,62 +224,150 @@
     gap: 1px;
     line-height: 1.1;
 }
+
 .hud-label {
-    font-size: 10px;
     color: var(--surface-muted);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    letter-spacing: .08em;
 }
+
 .hud-value {
+    color: var(--text-color);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
     font-size: 17px;
-    font-weight: 700;
-    transition: color .2s ease;
+    font-weight: 750;
+    transition: color 0.2s ease;
 }
 
+.hud-value.bump-up {
+    animation: bumpUp 0.5s ease;
+}
 
-/* Значение изменилось — короткая вспышка */
-.hud-value.bump-up { animation: bumpUp .5s ease; }
-.hud-value.bump-down { animation: bumpDown .5s ease; }
+.hud-value.bump-down {
+    animation: bumpDown 0.5s ease;
+}
+
 @keyframes bumpUp {
-    0% { color: var(--success-color); transform: scale(1); }
-    35% { color: var(--success-color); transform: scale(1.18); }
-    100% { color: var(--text-color); transform: scale(1); }
+    0% {
+        color: var(--success-color);
+        transform: scale(1);
+    }
+
+    35% {
+        color: var(--success-color);
+        transform: scale(1.18);
+    }
+
+    100% {
+        color: var(--text-color);
+        transform: scale(1);
+    }
 }
+
 @keyframes bumpDown {
-    0% { color: var(--danger-color); transform: scale(1); }
-    35% { color: var(--danger-color); transform: scale(1.18); }
-    100% { color: var(--text-color); transform: scale(1); }
+    0% {
+        color: var(--danger-color);
+        transform: scale(1);
+    }
+
+    35% {
+        color: var(--danger-color);
+        transform: scale(1.18);
+    }
+
+    100% {
+        color: var(--text-color);
+        transform: scale(1);
+    }
 }
 
+.hud-timer.is-warn {
+    border-color: rgba(255, 203, 107, 0.44);
+    background: rgba(255, 203, 107, 0.06);
+}
 
-/* Таймер — предупреждение и критическое состояние */
-.hud-timer.is-warn .hud-icon { background: rgba(251, 191, 36, 0.16); color: var(--level1-color); }
-.hud-timer.is-warn .hud-value { color: var(--level1-color); }
-.hud-timer.is-warn { border-color: rgba(251, 191, 36, 0.35); }
+.hud-timer.is-warn .hud-icon {
+    border-color: rgba(255, 203, 107, 0.34);
+    color: var(--level1-color);
+    background: rgba(255, 203, 107, 0.13);
+}
 
+.hud-timer.is-warn .hud-value {
+    color: var(--level1-color);
+}
 
 .connection-status {
-    color: var(--warning-color, #fbbf24);
+    color: var(--warning-color);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 650;
 }
 
+.hud-timer.is-critical {
+    border-color: rgba(var(--danger-color-rgb), 0.60);
+    background: rgba(var(--danger-color-rgb), 0.09);
+    animation: hudCriticalPulse 1s ease-in-out infinite;
+}
 
-.hud-timer.is-critical { border-color: rgba(225, 29, 72, 0.5); animation: hudCriticalPulse 1s ease-in-out infinite; }
-.hud-timer.is-critical .hud-icon { background: rgba(225, 29, 72, 0.18); color: var(--danger-color); }
-.hud-timer.is-critical .hud-value { color: var(--danger-color); }
+.hud-timer.is-critical .hud-icon {
+    border-color: rgba(var(--danger-color-rgb), 0.40);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb), 0.16);
+}
+
+.hud-timer.is-critical .hud-value {
+    color: #ff7089;
+}
+
 @keyframes hudCriticalPulse {
-    0%, 100% { box-shadow: 0 0 0 rgba(225, 29, 72, 0); }
-    50% { box-shadow: 0 0 14px rgba(225, 29, 72, 0.55); }
-}
+    0%,
+    100% {
+        box-shadow: 0 0 0 rgba(var(--danger-color-rgb), 0);
+    }
 
+    50% {
+        box-shadow: 0 0 18px rgba(var(--danger-color-rgb), 0.46);
+    }
+}
 
 @media (max-width: 600px) {
-    .dashboard { gap: 10px; padding: 10px 12px; top: 12px; left: 12px; }
-    .player-info-text { display: none; }
-    .hud-divider { display: none; }
-    .game-hud { gap: 6px; }
-    .hud-item { min-width: 0; padding: 6px 10px 6px 6px; gap: 7px; }
-    .hud-icon { width: 26px; height: 26px; }
-    .hud-value { font-size: 14px; }
+    .dashboard {
+        top: 12px;
+        left: 12px;
+        gap: 10px;
+        padding: 10px 12px;
+    }
+
+    .dashboard::after {
+        inset: 4px;
+        border-radius: 8px;
+    }
+
+    .player-info-text {
+        display: none;
+    }
+
+    .hud-divider {
+        display: none;
+    }
+
+    .game-hud {
+        gap: 6px;
+    }
+
+    .hud-item {
+        min-width: 0;
+        gap: 7px;
+        padding: 6px 10px 6px 6px;
+    }
+
+    .hud-icon {
+        width: 26px;
+        height: 26px;
+    }
+
+    .hud-value {
+        font-size: 14px;
+    }
 }
