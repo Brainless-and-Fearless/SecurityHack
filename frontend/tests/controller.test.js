@@ -784,7 +784,10 @@ function createTrackedClassList(...initialNames) {
     return {
         add: vi.fn((name) => names.add(name)),
         remove: vi.fn((name) => names.delete(name)),
-        toggle: vi.fn(),
+        toggle: vi.fn((name, force) => {
+            if (force ?? !names.has(name)) names.add(name);
+            else names.delete(name);
+        }),
         contains: vi.fn((name) => names.has(name)),
     };
 }
@@ -798,6 +801,9 @@ function createMockChoiceButton() {
         className: '',
         textContent: '',
         disabled: false,
+        children: [],
+        classList: createTrackedClassList(),
+        replaceChildren(...children) { this.children = children; },
         addEventListener: vi.fn((event, handler) => {
             handlers[event] = handler;
         }),
@@ -1089,8 +1095,12 @@ function createGameFinishedElements() {
             textContent: '',
         },
         'game-finished-details': {
-            textContent: '',
+            ...createMockChoiceButton(),
         },
+        'game-finished-subtitle': createMockChoiceButton(),
+        'game-finished-summary': createMockChoiceButton(),
+        'game-finished-local-score': createMockChoiceButton(),
+        'game-finished-local-place': createMockChoiceButton(),
     };
 }
 
@@ -1381,17 +1391,17 @@ test.each([
     {
         name: 'current player wins',
         winnerId: 'player_1',
-        expectedTitle: 'Победа',
+        expectedTitle: 'ПОБЕДА',
     },
     {
         name: 'another player wins',
         winnerId: 'player_2',
-        expectedTitle: 'Поражение',
+        expectedTitle: 'ПОРАЖЕНИЕ',
     },
     {
         name: 'scores are tied',
         winnerId: null,
-        expectedTitle: 'Ничья',
+        expectedTitle: 'НИЧЬЯ',
     },
 ])('GAME_FINISHED shows authoritative result when $name', ({
     winnerId,
@@ -1430,15 +1440,66 @@ test.each([
     expect(
         elements['game-finished-title'].textContent
     ).toBe(expectedTitle);
-    expect(
-        elements['game-finished-details'].textContent
-    ).toContain('Alice: 12');
-    expect(
-        elements['game-finished-details'].textContent
-    ).toContain('Bob: 7');
+    expect(elements['game-finished-details'].children.map(
+        (row) => row.children.map((cell) => cell.textContent),
+    )).toEqual([['1', 'Alice', '12'], ['2', 'Bob', '7']]);
     expect(playFinishSequence).toHaveBeenCalledWith(
         winnerId === 'player_1'
     );
+});
+
+test.each([
+    ['player_1', 'is-victory', 'Сеть взята под контроль'],
+    ['player_2', 'is-defeat', 'Контроль над сетью потерян'],
+    [null, 'is-draw', 'Баланс сил сохранён'],
+])('final screen uses authoritative outcome %s and safely sorted scores', (winnerId, outcomeClass, subtitle) => {
+    const elements = createGameFinishedElements();
+    const { controller, model, network } = createAttackController(elements);
+    const unsafeName = '<img src=x onerror="window.hacked=true">';
+    model.state.players.player_2 = { nickname: unsafeName, score: 999 };
+    model.state.players.player_3 = { nickname: 'Charlie', score: -999 };
+    const message = {
+        type: 'GAME_FINISHED', winner_id: winnerId,
+        scores: { player_1: 12, player_2: 30, player_3: 30, unknown: -3 },
+    };
+    const original = JSON.stringify(message);
+    const transport = new Network({ onGameFinished: (data) => controller.onGameFinished(data) }, 'ws://localhost/ws');
+    transport._handleMessage({ data: JSON.stringify(message) });
+    const rows = elements['game-finished-details'].children;
+    expect(rows.map((row) => row.children.map((cell) => cell.textContent))).toEqual([
+        ['1', unsafeName, '30'], ['2', 'Charlie', '30'], ['3', 'Alice', '12'], ['4', 'unknown', '-3'],
+    ]);
+    expect(rows[0].children[1].children).toEqual([]);
+    expect(rows[2].classList.contains('is-you')).toBe(true);
+    expect(rows[0].classList.contains('is-you')).toBe(false);
+    expect(rows.filter((row) => row.classList.contains('is-winner'))).toEqual(
+        winnerId === null ? [] : [rows[winnerId === 'player_1' ? 2 : 0]],
+    );
+    expect(elements['game-finished-panel'].classList.contains(outcomeClass)).toBe(true);
+    expect(elements['game-finished-subtitle'].textContent).toBe(subtitle);
+    expect(elements['game-finished-summary'].classList.contains('hidden')).toBe(false);
+    expect(elements['game-finished-local-score'].textContent).toBe('Очки: 12');
+    expect(elements['game-finished-local-place'].textContent).toBe('Место: 3');
+    // Only the existing finish-time catalog refresh; rendering adds no request.
+    expect(network.listKnowledge).toHaveBeenCalledTimes(1);
+    for (const [name, method] of Object.entries(network)) {
+        if (typeof method === 'function' && name !== 'listKnowledge') expect(method).not.toHaveBeenCalled();
+    }
+    expect(JSON.stringify(message)).toBe(original);
+});
+
+test('replayed results replace stale styling and omit summary when local identity is unavailable', () => {
+    const elements = createGameFinishedElements();
+    const { controller, network } = createAttackController(elements);
+    controller.onGameFinished({ winner_id: 'player_1', scores: { player_1: 10 } });
+    network.you = null;
+    controller.onGameFinished({ winner_id: null, scores: { player_2: 5 } });
+    expect(elements['game-finished-panel'].classList.contains('is-victory')).toBe(false);
+    expect(elements['game-finished-panel'].classList.contains('is-draw')).toBe(true);
+    expect(elements['game-finished-summary'].classList.contains('hidden')).toBe(true);
+    expect(elements['game-finished-local-score'].textContent).toBe('');
+    expect(elements['game-finished-local-place'].textContent).toBe('');
+    expect(elements['game-finished-details'].children).toHaveLength(1);
 });
 
 

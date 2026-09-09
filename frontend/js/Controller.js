@@ -80,6 +80,10 @@ export class Controller {
         this.gameFinishedDetails = document.getElementById(
             'game-finished-details'
         );
+        this.gameFinishedSubtitle = document.getElementById('game-finished-subtitle');
+        this.gameFinishedSummary = document.getElementById('game-finished-summary');
+        this.gameFinishedLocalScore = document.getElementById('game-finished-local-score');
+        this.gameFinishedLocalPlace = document.getElementById('game-finished-local-place');
 
         this.activeTask = null;
         this.taskResultEducation = null;
@@ -1190,30 +1194,39 @@ export class Controller {
             message.winner_id !== null
             && message.winner_id === currentPlayerId;
 
-        if (message.winner_id === null) {
-            this.gameFinishedTitle.textContent = 'Ничья';
-        } else if (isWinner) {
-            this.gameFinishedTitle.textContent = 'Победа';
-        } else {
-            this.gameFinishedTitle.textContent = 'Поражение';
+        const outcome = message.winner_id === null ? 'draw' : isWinner ? 'victory' : 'defeat';
+        const [title, subtitle] = {
+            victory: ['ПОБЕДА', 'Сеть взята под контроль'],
+            defeat: ['ПОРАЖЕНИЕ', 'Контроль над сетью потерян'],
+            draw: ['НИЧЬЯ', 'Баланс сил сохранён'],
+        }[outcome];
+        for (const state of ['victory', 'defeat', 'draw']) {
+            this.gameFinishedPanel.classList.remove(`is-${state}`);
         }
+        this.gameFinishedPanel.classList.add(`is-${outcome}`);
+        this.gameFinishedTitle.textContent = title;
+        this.gameFinishedSubtitle.textContent = subtitle;
 
-        const scoreLines = Object.entries(message.scores)
-            .map(([playerId, score]) => {
-                const player = this.model.state.players[playerId];
-                const nickname = player?.nickname ?? playerId;
-                return `${nickname}: ${score}`;
-            });
+        // Stable score ordering is presentation only; winner_id remains authoritative.
+        const standings = Object.entries(message.scores).sort((a, b) => b[1] - a[1]);
+        const rows = standings.map(([playerId, score], index) => {
+            const row = document.createElement('tr');
+            if (playerId === message.winner_id) row.classList.add('is-winner');
+            if (playerId === currentPlayerId) row.classList.add('is-you');
+            const nickname = this.model.state.players[playerId]?.nickname ?? playerId;
+            row.replaceChildren(...[index + 1, nickname, score].map((value) => {
+                const cell = document.createElement('td');
+                cell.textContent = String(value);
+                return cell;
+            }));
+            return row;
+        });
+        this.gameFinishedDetails.replaceChildren(...rows);
 
-        const winner = message.winner_id
-            ? this.model.state.players[message.winner_id]
-            : null;
-        const winnerLine = winner
-            ? `Победитель: ${winner.nickname}\n`
-            : '';
-
-        this.gameFinishedDetails.textContent =
-            `${winnerLine}Итоговый счёт:\n${scoreLines.join('\n')}`;
+        const localIndex = standings.findIndex(([playerId]) => playerId === currentPlayerId);
+        this.gameFinishedSummary.classList.toggle('hidden', localIndex < 0);
+        this.gameFinishedLocalScore.textContent = localIndex < 0 ? '' : `Очки: ${standings[localIndex][1]}`;
+        this.gameFinishedLocalPlace.textContent = localIndex < 0 ? '' : `Место: ${localIndex + 1}`;
 
         this.gameFinishedPanel.classList.remove('hidden');
 
